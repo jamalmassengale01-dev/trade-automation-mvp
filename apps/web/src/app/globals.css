@@ -1,0 +1,118 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground-rgb: 0, 0, 0;
+  --background-rgb: 248, 250, 252;
+  
+  /* Chart colors */
+  --chart-grid: rgba(0, 0, 0, 0.1);
+  --chart-axis: rgba(0, 0, 0, 0.5);
+  --chart-tooltip-bg: rgba(255, 255, 255, 0.95);
+  --chart-tooltip-border: rgba(0, 0, 0, 0.1);
+  --chart-tooltip-color: #000;
+  
+  /* Toast colors */
+  --toast-bg: #ffffff;
+  --toast-color: #000000;
+  --toast-border: rgba(0, 0, 0, 0.1);
+}
+
+.dark {
+  --foreground-rgb: 255, 255, 255;
+  --background-rgb: 17, 24, 39;
+  
+  /* Chart colors dark mode */
+  --chart-grid: rgba(255, 255, 255, 0.1);
+  --chart-axis: rgba(255, 255, 255, 0.5);
+  --chart-tooltip-bg: rgba(31, 41, 55, 0.95);
+  --chart-tooltip-border: rgba(255, 255, 255, 0.1);
+  --chart-tooltip-color: #fff;
+  
+  /* Toast colors dark mode */
+  --toast-bg: #1f2937;
+  --toast-color: #ffffff;
+  --toast-border: rgba(255, 255, 255, 0.1);
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: rgb(var(--background-rgb));
+}
+
+@layer components {
+  .btn {
+    @apply px-4 py-2 rounded font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2;
+  }
+  
+  .btn-primary {
+    @apply btn bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500;
+  }
+  
+  .btn-danger {
+    @apply btn bg-red-600 text-white hover:bg-red-700 focus:ring-red-500;
+  }
+  
+  .btn-secondary {
+    @apply btn bg-gray-200 text-gray-800 hover:bg-gray-300 focus:ring-gray-500 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600;
+  }
+  
+  .card {
+    @apply bg-white rounded-lg shadow-sm border border-gray-200 p-6 dark:bg-gray-800 dark:border-gray-700;
+  }
+  
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+  
+  .badge-success {
+    @apply badge bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300;
+  }
+  
+  .badge-danger {
+    @apply badge bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300;
+  }
+  
+  .badge-warning {
+    @apply badge bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300;
+  }
+  
+  .badge-info {
+    @apply badge bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #475569;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+/* Smooth transitions for theme switching */
+* {
+  transition-property: background-color, border-color;
+  transition-duration: 150ms;
+  transition-timing-function: ease-in-out;
+}

@@ -1,0 +1,17 @@
+{
+  "id": "tv-alert-1700409600000",
+  "timestamp": 1700409600000,
+  "strategy": "BreakoutStrategy",
+  "symbol": "ES",
+  "action": "buy",
+  "contracts": 2,
+  "price": 4500.50,
+  "stopLoss": 4490.00,
+  "takeProfit": 4520.00,
+  "message": "Breakout detected above resistance",
+  "metadata": {
+    "indicator": "RSI",
+    "rsi_value": 65,
+    "timeframe": "15m"
+  }
+}

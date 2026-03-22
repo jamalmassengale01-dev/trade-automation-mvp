@@ -1,0 +1,125 @@
+# ============================================
+# Full Stack with Cloudflare Tunnel
+# Includes: PostgreSQL, Redis, API, Web, and Tunnel
+# ============================================
+
+version: '3.8'
+
+services:
+  # ============================================
+  # PostgreSQL Database
+  # ============================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: trade-automation-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: trade_automation
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../apps/api/src/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - trade-network
+
+  # ============================================
+  # Redis (for BullMQ)
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: trade-automation-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - trade-network
+
+  # ============================================
+  # Backend API
+  # ============================================
+  api:
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile.api
+    container_name: trade-automation-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3001
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/trade_automation
+      REDIS_URL: redis://redis:6379
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-dev-secret-change-me}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ENABLE_MOCK_BROKER: ${ENABLE_MOCK_BROKER:-true}
+      ENABLE_SIMULATED_BROKER: ${ENABLE_SIMULATED_BROKER:-true}
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - trade-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============================================
+  # Frontend Web
+  # ============================================
+  web:
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile.web
+    container_name: trade-automation-web
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: ${TUNNEL_URL:-http://localhost:3001}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    networks:
+      - trade-network
+
+  # ============================================
+  # Cloudflare Tunnel (Public Access)
+  # ============================================
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: trade-automation-tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - api
+      - web
+    networks:
+      - trade-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  trade-network:
+    driver: bridge

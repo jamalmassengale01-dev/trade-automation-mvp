@@ -1,0 +1,86 @@
+version: '3.8'
+
+services:
+  # ============================================
+  # PostgreSQL Database
+  # ============================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: trade-automation-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: trade_automation
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # Redis (for BullMQ)
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: trade-automation-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # Backend API
+  # ============================================
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    container_name: trade-automation-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/trade_automation
+      REDIS_URL: redis://redis:6379
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-change-me-in-production}
+      LOG_LEVEL: info
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ../logs:/app/logs
+
+  # ============================================
+  # Frontend (Next.js)
+  # ============================================
+  web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web
+    container_name: trade-automation-web
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://api:3001
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
+  redis_data:

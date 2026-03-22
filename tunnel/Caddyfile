@@ -1,0 +1,42 @@
+# ============================================
+# Caddy Configuration (Alternative to Cloudflare)
+# For local HTTPS and reverse proxy
+# ============================================
+# 
+# Usage:
+#   1. Install Caddy: https://caddyserver.com/docs/install
+#   2. Run: caddy run --config tunnel/Caddyfile
+#   3. Access: https://localhost (auto HTTPS)
+# ============================================
+
+{
+    auto_https off
+}
+
+# Local HTTPS development
+localhost:3443 {
+    tls internal
+    
+    # Reverse proxy to web
+    reverse_proxy localhost:3000
+    
+    # API routes
+    handle_path /api/* {
+        reverse_proxy localhost:3001
+    }
+    
+    handle_path /webhook/* {
+        reverse_proxy localhost:3001
+    }
+    
+    handle /health {
+        reverse_proxy localhost:3001
+    }
+}
+
+# API subdomain simulation (requires /etc/hosts entry)
+# Add to /etc/hosts: 127.0.0.1 api.localhost
+api.localhost:3443 {
+    tls internal
+    reverse_proxy localhost:3001
+}

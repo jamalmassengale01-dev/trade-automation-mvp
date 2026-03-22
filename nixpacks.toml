@@ -1,0 +1,17 @@
+# ============================================
+# Railway Nixpacks Configuration
+# Alternative to Docker for faster builds
+# ============================================
+
+[phases.build]
+cmds = [
+  "npm ci",
+  "npm run build:shared-types",
+  "npm run build:api"
+]
+
+[phases.setup]
+nixPkgs = ["nodejs_20"]
+
+[start]
+cmd = "node apps/api/dist/index.js"

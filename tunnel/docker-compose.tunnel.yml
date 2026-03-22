@@ -1,0 +1,77 @@
+# ============================================
+# Cloudflare Tunnel - Public Access to Local Dev
+# ============================================
+# This creates a secure tunnel from the internet to your local machine
+# 
+# Benefits:
+# - Permanent public URL (no changing IPs)
+# - HTTPS automatically
+# - Password protection available
+# - No port forwarding needed
+# ============================================
+
+version: '3.8'
+
+services:
+  # ============================================
+  # Cloudflare Tunnel
+  # ============================================
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: trade-automation-tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      # Get this from: https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/tunnel-guide/local/
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    networks:
+      - trade-automation-network
+    depends_on:
+      - api
+
+  # ============================================
+  # Local API (exposed through tunnel)
+  # ============================================
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    container_name: trade-automation-api-tunnel
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@host.docker.internal:5432/trade_automation}
+      REDIS_URL: ${REDIS_URL:-redis://host.docker.internal:6379}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-dev-secret-change-me}
+      LOG_LEVEL: debug
+      ENABLE_MOCK_BROKER: "true"
+      ENABLE_SIMULATED_BROKER: "true"
+    ports:
+      - "3001:3001"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - trade-automation-network
+
+  # ============================================
+  # Web Dashboard (optional, for full-stack testing)
+  # ============================================
+  web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web
+    container_name: trade-automation-web-tunnel
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: ${TUNNEL_URL:-http://localhost:3001}
+    ports:
+      - "3000:3000"
+    networks:
+      - trade-automation-network
+    depends_on:
+      - api
+
+networks:
+  trade-automation-network:
+    driver: bridge

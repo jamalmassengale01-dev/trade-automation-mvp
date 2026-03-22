@@ -1,0 +1,33 @@
+# ============================================
+# Quick ngrok Configuration
+# For temporary testing without Cloudflare setup
+# ============================================
+# 
+# Usage:
+#   1. Install ngrok: https://ngrok.com/download
+#   2. Sign up for free at https://ngrok.com
+#   3. Add authtoken: ngrok config add-authtoken YOUR_TOKEN
+#   4. Run: ngrok start --config=ngrok-quick.yml trading-api
+#
+# Or simply run:
+#   ngrok http 3001
+# ============================================
+
+version: 2
+
+authtoken: ${NGROK_AUTHTOKEN}
+
+# Configuration for Trade Automation tunnels
+tunnels:
+  # API tunnel (for TradingView webhooks)
+  trading-api:
+    proto: http
+    addr: 3001
+    domain: ${NGROK_DOMAIN:-}  # Optional: set your custom ngrok domain
+    inspect: true
+    
+  # Web dashboard tunnel
+  trading-web:
+    proto: http
+    addr: 3000
+    inspect: false

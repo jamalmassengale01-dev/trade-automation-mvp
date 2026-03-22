@@ -1,0 +1,75 @@
+// ============================================
+// TradingView Pine Script Example
+// ============================================
+// This is an example strategy that sends alerts
+// compatible with the trade automation webhook.
+
+//@version=5
+strategy("Webhook Strategy Example", overlay=true)
+
+// Inputs
+fastLength = input.int(12, "Fast EMA")
+slowLength = input.int(26, "Slow EMA")
+useStopLoss = input.bool(true, "Use Stop Loss")
+stopLossTicks = input.int(20, "Stop Loss (ticks)")
+useTakeProfit = input.bool(true, "Use Take Profit")
+takeProfitTicks = input.int(40, "Take Profit (ticks)")
+
+// Calculate EMAs
+fastEMA = ta.ema(close, fastLength)
+slowEMA = ta.ema(close, slowLength)
+
+// Plot EMAs
+plot(fastEMA, "Fast EMA", color.blue)
+plot(slowEMA, "Slow EMA", color.orange)
+
+// Generate signals
+longCondition = ta.crossover(fastEMA, slowEMA)
+shortCondition = ta.crossunder(fastEMA, slowEMA)
+
+// Calculate stop loss and take profit levels
+longStop = useStopLoss ? close - (syminfo.mintick * stopLossTicks) : na
+longProfit = useTakeProfit ? close + (syminfo.mintick * takeProfitTicks) : na
+shortStop = useStopLoss ? close + (syminfo.mintick * stopLossTicks) : na
+shortProfit = useTakeProfit ? close - (syminfo.mintick * takeProfitTicks) : na
+
+// Execute trades
+if longCondition
+    strategy.entry("Long", strategy.long)
+    if useStopLoss
+        strategy.exit("Long Exit", "Long", stop=longStop, limit=longProfit)
+
+if shortCondition
+    strategy.entry("Short", strategy.short)
+    if useStopLoss
+        strategy.exit("Short Exit", "Short", stop=shortStop, limit=shortProfit)
+
+// ============================================
+// Alert Message Template
+// ============================================
+// Copy this JSON into the TradingView alert message:
+//
+// {
+//   "id": "{{strategy.order.id}}",
+//   "timestamp": {{time}},
+//   "strategy": "{{strategy.title}}",
+//   "symbol": "{{ticker}}",
+//   "action": "{{strategy.order.action}}",
+//   "contracts": {{strategy.position_size}},
+//   "price": {{close}},
+//   "stopLoss": {{strategy.order.stop}},
+//   "takeProfit": {{strategy.order.take}},
+//   "message": "EMA Crossover Signal",
+//   "metadata": {
+//     "fastEMA": {{fastEMA}},
+//     "slowEMA": {{slowEMA}}
+//   }
+// }
+//
+// ============================================
+// Webhook Configuration
+// ============================================
+// 1. Create alert from this strategy
+// 2. Enable webhook notifications
+// 3. URL: http://your-server:3001/webhook/tradingview
+// 4. Header: X-Webhook-Secret: your-secret-key
