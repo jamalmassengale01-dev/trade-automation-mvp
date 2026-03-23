@@ -84,6 +84,12 @@ router.get('/settings', async (req: Request, res: Response) => {
  */
 router.post('/kill-switch', async (req: Request, res: Response) => {
   try {
+    const _sysKey = process.env['SYSTEM_API_KEY'];
+    if (_sysKey && req.headers['x-system-api-key'] !== _sysKey) {
+      res.status(401).json({ success: false, error: 'Unauthorized: invalid or missing x-system-api-key header' });
+      return;
+    }
+
     const { enabled } = req.body;
     
     if (typeof enabled !== 'boolean') {

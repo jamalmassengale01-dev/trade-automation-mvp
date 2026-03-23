@@ -183,6 +183,16 @@ export async function processAlertJob(job: Job<AlertJobData>): Promise<void> {
 
     // 7. Update trade request status
     const successCount = results.filter((r) => r.success).length;
+    if (successCount > 0) {
+      try {
+        await copierEngine.copyTrade(tradeRequest, signal, strategyId);
+      } catch (copyErr) {
+        processorLogger.error('copierEngine.copyTrade failed', {
+          alertId,
+          error: copyErr instanceof Error ? copyErr.message : String(copyErr),
+        });
+      }
+    }
     await updateTradeRequestStatus(
       tradeRequest.id,
       successCount > 0 ? 'completed' : 'failed'
@@ -469,7 +479,7 @@ async function loadMappingsWithAccounts(
   const result = await query<{
     account_id: string;
     account_name: string;
-  }>(`,
+  }>(
     `SELECT 
       cm.account_id,
       ba.name as account_name
