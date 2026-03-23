@@ -255,7 +255,7 @@ export async function getExecutionStats(
     succeeded: number;
     failed: number;
     avg_duration: number;
-  }>(`,
+  }>(
     `SELECT 
       COUNT(*) as total,
       COUNT(*) FILTER (WHERE status = 'succeeded') as succeeded,
@@ -270,7 +270,7 @@ export async function getExecutionStats(
     operation: string;
     count: number;
     fail_rate: number;
-  }>(`,
+  }>(
     `SELECT 
       operation,
       COUNT(*) as count,

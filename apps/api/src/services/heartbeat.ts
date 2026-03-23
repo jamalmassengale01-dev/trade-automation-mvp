@@ -78,7 +78,7 @@ export async function getSystemHealth(options: {
     status: ComponentStatus;
     metrics: Record<string, unknown>;
     last_beat_at: Date;
-  }>(`,
+  }>(
     `SELECT 
       component,
       instance_id,
@@ -132,7 +132,7 @@ export async function getStaleComponents(
     status: ComponentStatus;
     metrics: Record<string, unknown>;
     last_beat_at: Date;
-  }>(`,
+  }>(
     `SELECT 
       component,
       instance_id,

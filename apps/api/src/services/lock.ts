@@ -217,7 +217,7 @@ export async function getHeldLocks(): Promise<
     objid: number;
     pid: number;
     mode: string;
-  }>(`,
+  }>(
     `SELECT locktype, objid, pid, mode 
      FROM pg_locks 
      WHERE locktype = 'advisory' 

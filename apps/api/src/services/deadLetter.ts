@@ -183,15 +183,15 @@ export async function getDLQStats(): Promise<{
       query<{ count: number }>(
         "SELECT COUNT(*) as count FROM dead_letter_queue WHERE retryable = true"
       ),
-      query<{ count: number; success: number }>(`,
-        `SELECT 
+      query<{ count: number; success: number }>(
+    `SELECT 
           COUNT(*) as count,
           COUNT(*) FILTER (WHERE retried_successfully = true) as success
          FROM dead_letter_queue
          WHERE retried_at IS NOT NULL`
       ),
-      query<{ queue_name: string; count: number }>(`,
-        `SELECT queue_name, COUNT(*) as count 
+      query<{ queue_name: string; count: number }>(
+    `SELECT queue_name, COUNT(*) as count 
          FROM dead_letter_queue 
          GROUP BY queue_name 
          ORDER BY count DESC`

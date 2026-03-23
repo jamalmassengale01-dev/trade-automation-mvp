@@ -381,8 +381,8 @@ export class HardenedCopierEngine {
     const result = await query<{
       account_id: string;
       account_name: string;
-    }>(`,
-      `SELECT 
+    }>(
+    `SELECT 
         cm.account_id,
         ba.name as account_name
        FROM copier_mappings cm

@@ -151,7 +151,7 @@ async function getSystemPositions(
     side: 'buy' | 'sell';
     total_quantity: number;
     avg_price: number;
-  }>(`,
+  }>(
     `WITH fills AS (
       SELECT 
         symbol,

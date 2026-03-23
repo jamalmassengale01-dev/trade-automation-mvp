@@ -420,7 +420,7 @@ export async function getAllCircuitStatuses(): Promise<
       last_failure_at: Date;
       opened_at: Date;
     }
-  >(`,
+  >(
     `SELECT 
       cb.account_id,
       ba.name as account_name,

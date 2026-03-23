@@ -159,8 +159,8 @@ export async function insertAlertAtomic(
     // Try to insert - if duplicate, the unique constraint will catch it
     const insertResult = await client.query<
       { id: string; is_new: boolean }
-    >(`,
-      `INSERT INTO alerts_received (
+    >(
+    `INSERT INTO alerts_received (
         strategy_id, alert_id, raw_payload, is_valid,
         validation_error, is_duplicate, created_at
       ) VALUES ($1, $2, $3, $4, $5, $6, NOW())
@@ -192,8 +192,8 @@ export async function insertAlertAtomic(
     // Alert already exists - fetch it
     const existingResult = await client.query<
       Record<string, unknown>
-    >(`,
-      `SELECT * FROM alerts_received 
+    >(
+    `SELECT * FROM alerts_received 
        WHERE strategy_id = $1 AND alert_id = $2 
        LIMIT 1`,
       [data.strategyId, data.alertId]
