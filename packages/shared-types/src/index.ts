@@ -26,27 +26,27 @@ export interface BrokerAccount {
   id: string;
   userId: string;
   name: string;
-  brokerType: BrokerType;
+  broker_type: BrokerType;
   credentials: Record<string, string>;
-  isActive: boolean;
-  isDisabled: boolean;
+  is_active: boolean;
+  is_disabled: boolean;
   settings: AccountSettings;
   createdAt: Date;
   updatedAt: Date;
 }
 
 export interface AccountSettings {
-  fixedSize?: number;
+  fixed_size?: number;
   multiplier: number;
-  longOnly: boolean;
-  shortOnly: boolean;
-  allowedSymbols: string[];
-  maxContracts: number;
+  long_only: boolean;
+  short_only: boolean;
+  allowed_symbols: string[];
+  max_contracts: number;
   maxPositions: number;
 }
 
 export interface AccountInfo {
-  accountId: string;
+  account_id: string;
   buyingPower: number;
   cashBalance: number;
   equity: number;
@@ -108,7 +108,7 @@ export interface Strategy {
   userId: string;
   name: string;
   description?: string;
-  isActive: boolean;
+  is_active: boolean;
   webhookSecret: string;
   riskRules: RiskRule[];
   createdAt: Date;
@@ -118,9 +118,9 @@ export interface Strategy {
 export interface RiskRule {
   id: string;
   strategyId: string;
-  ruleType: RiskRuleType;
+  rule_type: RiskRuleType;
   config: Record<string, unknown>;
-  isActive: boolean;
+  is_active: boolean;
 }
 
 export type RiskRuleType =
@@ -137,13 +137,13 @@ export type RiskRuleType =
 export interface CopierMapping {
   id: string;
   strategyId: string;
-  accountId: string;
-  isActive: boolean;
-  fixedSize?: number;
+  account_id: string;
+  is_active: boolean;
+  fixed_size?: number;
   multiplier: number;
-  longOnly: boolean;
-  shortOnly: boolean;
-  allowedSymbols: string[];
+  long_only: boolean;
+  short_only: boolean;
+  allowed_symbols: string[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -189,7 +189,7 @@ export type TradeRequestStatus =
 export interface OrderSubmitted {
   id: string;
   tradeRequestId: string;
-  accountId: string;
+  account_id: string;
   brokerOrderId?: string;
   symbol: string;
   side: 'buy' | 'sell';
@@ -206,7 +206,7 @@ export interface OrderSubmitted {
 export interface Execution {
   id: string;
   orderId: string;
-  accountId: string;
+  account_id: string;
   symbol: string;
   side: 'buy' | 'sell';
   quantity: number;
@@ -222,9 +222,9 @@ export interface Execution {
 export interface RiskEvent {
   id: string;
   type: 'rejection' | 'kill_switch' | 'warning';
-  ruleType: RiskRuleType;
+  rule_type: RiskRuleType;
   tradeRequestId?: string;
-  accountId?: string;
+  account_id?: string;
   strategyId?: string;
   message: string;
   details?: Record<string, unknown>;

@@ -22,7 +22,7 @@ pool.on('error', (err) => {
 });
 
 // Query helper with logging
-export async function query<T = unknown>(
+export async function query<T extends Record<string, unknown> = Record<string, unknown>>(
   text: string,
   params?: unknown[]
 ): Promise<QueryResult<T>> {
