@@ -1,6 +1,7 @@
 import { IBrokerAdapter } from './interface';
 import { MockBrokerAdapter } from './mockBroker';
 import { SimulatedBrokerAdapter } from './simulatedBroker';
+import { TradovateBrokerAdapter } from './tradovateBroker';
 import { BrokerType } from '../types';
 import config from '../config';
 import logger from '../utils/logger';
@@ -38,8 +39,8 @@ export function getBrokerAdapter(brokerType: BrokerType): IBrokerAdapter {
       break;
       
     case 'tradovate':
-      // TODO: Implement Tradovate adapter
-      throw new Error('Tradovate broker not yet implemented');
+      adapter = new TradovateBrokerAdapter();
+      break;
       
     case 'tradier':
       // TODO: Implement Tradier adapter
