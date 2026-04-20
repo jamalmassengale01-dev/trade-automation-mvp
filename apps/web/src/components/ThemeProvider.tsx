@@ -32,7 +32,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   };
 
   if (!mounted) {
-    return <>{children}</>;
+    // Still wrap with provider so useTheme() doesn't throw before hydration
+    return (
+      <ThemeContext.Provider value={{ theme, toggleTheme }}>
+        {children}
+      </ThemeContext.Provider>
+    );
   }
 
   return (
