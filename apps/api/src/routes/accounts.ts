@@ -73,6 +73,80 @@ router.get('/:id', async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /api/accounts
+ * Create a new broker account
+ */
+router.post('/', async (req: Request, res: Response) => {
+  try {
+    const { name, broker_type, credentials = {}, settings = {} } = req.body;
+
+    if (!name || !broker_type) {
+      res.status(400).json({ success: false, error: 'name and broker_type are required' });
+      return;
+    }
+
+    const validTypes = ['mock', 'simulated', 'tradovate', 'tradier'];
+    if (!validTypes.includes(broker_type)) {
+      res.status(400).json({ success: false, error: `broker_type must be one of: ${validTypes.join(', ')}` });
+      return;
+    }
+
+    const defaultSettings = {
+      multiplier: 1,
+      longOnly: false,
+      shortOnly: false,
+      allowedSymbols: [],
+      maxContracts: 100,
+      maxPositions: 10,
+      ...settings,
+    };
+
+    const result = await query(
+      `INSERT INTO broker_accounts (name, broker_type, credentials, settings, is_active)
+       VALUES ($1, $2, $3, $4, true)
+       RETURNING id, name, broker_type, is_active, is_disabled, settings, created_at`,
+      [name, broker_type, JSON.stringify(credentials), JSON.stringify(defaultSettings)]
+    );
+
+    routeLogger.info('Created broker account', { name, broker_type, id: result.rows[0].id });
+
+    res.status(201).json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    routeLogger.error('Failed to create account', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    res.status(500).json({ success: false, error: 'Failed to create account' });
+  }
+});
+
+/**
+ * DELETE /api/accounts/:id
+ * Delete a broker account
+ */
+router.delete('/:id', async (req: Request, res: Response) => {
+  try {
+    const result = await query(
+      'DELETE FROM broker_accounts WHERE id = $1 RETURNING id, name',
+      [req.params.id]
+    );
+
+    if (result.rowCount === 0) {
+      res.status(404).json({ success: false, error: 'Account not found' });
+      return;
+    }
+
+    routeLogger.info('Deleted broker account', { id: req.params.id });
+    res.json({ success: true, message: 'Account deleted' });
+  } catch (error) {
+    routeLogger.error('Failed to delete account', {
+      accountId: req.params.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    res.status(500).json({ success: false, error: 'Failed to delete account' });
+  }
+});
+
+/**
  * GET /api/accounts/:id/positions
  * Get account positions from broker
  */

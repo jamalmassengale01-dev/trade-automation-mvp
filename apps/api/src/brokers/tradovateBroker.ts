@@ -8,6 +8,7 @@ import {
   PlaceOrderRequest,
 } from '../types';
 import logger from '../utils/logger';
+import { resolveSymbol } from '../services/symbolResolver';
 
 const BASE_URLS = {
   demo: 'https://demo.tradovateapi.com/v1',
@@ -135,12 +136,15 @@ export class TradovateBrokerAdapter extends BaseBrokerAdapter {
     const orderType = this.mapOrderType(request.orderType);
     const clOrdId = uuidv4();
 
+    // Translate TradingView continuous symbols (MNQ1!) to front-month contracts (MNQM6)
+    const symbol = await resolveSymbol(request.symbol, baseUrl, token.accessToken);
+
     const body: Record<string, unknown> = {
       accountSpec: token.accountSpec,
       accountId: token.accountId,
       clOrdId,
       action,
-      symbol: request.symbol,
+      symbol,
       orderQty: request.quantity,
       orderType,
       isAutomated: true,
@@ -163,7 +167,7 @@ export class TradovateBrokerAdapter extends BaseBrokerAdapter {
     const now = new Date();
     return {
       id: String(result.orderId),
-      symbol: request.symbol,
+      symbol,
       side: request.side,
       quantity: request.quantity,
       orderType: request.orderType,

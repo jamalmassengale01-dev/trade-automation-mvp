@@ -29,6 +29,9 @@ export const api = {
   // Accounts
   getAccounts: () => apiClient<{ success: boolean; data: unknown[] }>('/api/accounts'),
   getAccount: (id: string) => apiClient<{ success: boolean; data: unknown }>(`/api/accounts/${id}`),
+  createAccount: (body: { name: string; broker_type: string; credentials?: Record<string, string>; settings?: Record<string, unknown> }) =>
+    apiClient<{ success: boolean; data: unknown }>('/api/accounts', { method: 'POST', body }),
+  deleteAccount: (id: string) => apiClient<{ success: boolean; message: string }>(`/api/accounts/${id}`, { method: 'DELETE' }),
   flattenAccount: (id: string) => apiClient<{ success: boolean; message: string }>(`/api/accounts/${id}/flatten`, { method: 'POST' }),
   disableAccount: (id: string) => apiClient<{ success: boolean; message: string }>(`/api/accounts/${id}/disable`, { method: 'POST' }),
   enableAccount: (id: string) => apiClient<{ success: boolean; message: string }>(`/api/accounts/${id}/enable`, { method: 'POST' }),

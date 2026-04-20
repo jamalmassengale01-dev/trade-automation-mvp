@@ -84,6 +84,13 @@ body {
     @apply bg-terminal-surface rounded-lg border border-terminal-border p-6;
   }
 
+  .input {
+    @apply bg-terminal-panel border border-terminal-border rounded-lg px-3 py-2 text-sm
+           text-terminal-text placeholder-terminal-muted
+           focus:outline-none focus:ring-1 focus:ring-terminal-buy focus:border-terminal-buy
+           transition-colors;
+  }
+
   .badge {
     @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
   }
