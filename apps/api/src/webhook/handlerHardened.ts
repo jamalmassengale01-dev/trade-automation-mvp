@@ -26,6 +26,7 @@ import {
   insertAlertAtomic,
   checkSignalCooldown,
 } from '../services';
+import { broadcaster } from '../services/wsbroadcaster';
 
 const webhookLogger = logger.child({ context: 'WebhookHandler' });
 
@@ -241,6 +242,16 @@ export async function handleTradingViewWebhook(
       },
     });
 
+    // 7b. Broadcast to WebSocket clients
+    broadcaster.broadcast('alert_received', {
+      alertId: alert.id,
+      alertRecordId: alertRecord.id,
+      strategyId,
+      symbol: alert.symbol,
+      action: alert.action,
+      contracts: alert.contracts,
+    });
+
     // 8. Enqueue for processing
     await alertQueue.add(
       'process-alert',
@@ -399,5 +410,157 @@ async function persistAlertWithKillSwitch(data: {
       requestId: data.requestId,
       error: error instanceof Error ? error.message : String(error),
     });
+  }
+}
+
+/**
+ * Strategy-scoped webhook handler: POST /webhook/tradingview/:strategyId
+ *
+ * Resolves strategy by URL parameter, then validates the webhook secret
+ * against that specific strategy's stored secret instead of global config.
+ */
+export async function handleTradingViewWebhookByStrategy(
+  req: Request,
+  res: Response
+): Promise<void> {
+  const { strategyId } = req.params;
+  const startTime = Date.now();
+  const requestId = crypto.randomUUID();
+  const traceId = generateTraceId();
+  const spanId = generateSpanId();
+  const logContext = { traceId, spanId };
+
+  webhookLogger.debug('Strategy-scoped webhook received', {
+    requestId, traceId, strategyId, ip: req.ip,
+  });
+
+  try {
+    // 1. Look up strategy by ID
+    const strategyResult = await query(
+      'SELECT id, webhook_secret FROM strategies WHERE id = $1 AND is_active = true',
+      [strategyId]
+    );
+
+    if (strategyResult.rowCount === 0) {
+      res.status(404).json({ success: false, error: 'Strategy not found or inactive' });
+      return;
+    }
+
+    const strategy = strategyResult.rows[0];
+
+    // 2. Validate strategy-specific secret
+    const providedSecret = req.headers['x-webhook-secret'] as string;
+    if (!providedSecret || providedSecret !== strategy.webhook_secret) {
+      webhookLogger.warn('Invalid webhook secret for strategy', {
+        requestId, traceId, strategyId,
+        provided: providedSecret ? 'present' : 'missing',
+      });
+      res.status(401).json({ success: false, error: 'Invalid or missing webhook secret' });
+      return;
+    }
+
+    // 3. Validate payload schema
+    const validation = validateAlert(req.body);
+    if (!validation.success) {
+      await persistInvalidAlert({
+        requestId,
+        rawPayload: req.body as TradingViewAlert,
+        validationError: validation.error!,
+      });
+      res.status(400).json({ success: false, error: 'Invalid payload: ' + validation.error });
+      return;
+    }
+
+    const alert = validation.data!;
+
+    // 4. Check global kill switch
+    if (config.features.globalKillSwitch) {
+      await persistAlertWithKillSwitch({ strategyId: strategy.id, alert, requestId, logContext });
+      res.status(503).json({
+        success: false,
+        error: 'Trading is globally disabled (kill switch active)',
+        alertId: alert.id,
+      });
+      return;
+    }
+
+    // 5. Signal cooldown
+    const cooldownResult = await checkSignalCooldown(strategy.id, alert.symbol, alert.action, 30);
+    if (!cooldownResult.allowed) {
+      res.status(200).json({
+        success: true,
+        message: 'Signal in cooldown period',
+        alertId: alert.id,
+        cooldownRemaining: cooldownResult.remainingSeconds,
+        processed: false,
+      });
+      return;
+    }
+
+    // 6. Atomic duplicate detection + insert
+    const { alert: alertRecord, isNew } = await insertAlertAtomic({
+      strategyId: strategy.id,
+      alertId: alert.id,
+      rawPayload: alert as unknown as Record<string, unknown>,
+      isValid: true,
+      isDuplicate: false,
+    });
+
+    if (!isNew) {
+      res.status(200).json({
+        success: true, message: 'Duplicate alert acknowledged',
+        alertId: alert.id, processed: false, duplicate: true,
+      });
+      return;
+    }
+
+    // 7. Broadcast to WebSocket clients
+    broadcaster.broadcast('alert_received', {
+      alertId: alert.id,
+      alertRecordId: alertRecord.id,
+      strategyId: strategy.id,
+      symbol: alert.symbol,
+      action: alert.action,
+      contracts: alert.contracts,
+    });
+
+    // 8. Enqueue for processing
+    await alertQueue.add(
+      'process-alert',
+      {
+        alertId: alertRecord.id,
+        strategyId: strategy.id,
+        payload: alert,
+        traceId,
+        parentSpanId: spanId,
+      },
+      {
+        jobId: `alert-${alert.id}`,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 1000 },
+      }
+    );
+
+    const duration = Date.now() - startTime;
+    webhookLogger.info('Strategy-scoped alert enqueued', {
+      requestId, traceId, strategyId: strategy.id,
+      alertId: alert.id, symbol: alert.symbol, action: alert.action, durationMs: duration,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Alert accepted',
+      alertId: alert.id,
+      traceId,
+      processed: true,
+      durationMs: duration,
+    });
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    webhookLogger.error('Strategy-scoped webhook failed', {
+      requestId, traceId, strategyId, durationMs: duration,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    res.status(500).json({ success: false, error: 'Internal server error', traceId });
   }
 }

@@ -2,38 +2,58 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================
+   TRADING TERMINAL THEME
+   Default: dark (terminal aesthetic)
+   ============================================ */
+
 :root {
-  --foreground-rgb: 0, 0, 0;
-  --background-rgb: 248, 250, 252;
-  
+  --foreground-rgb: 241, 245, 249;    /* slate-100 */
+  --background-rgb: 2, 6, 23;         /* slate-950 */
+
   /* Chart colors */
+  --chart-grid: rgba(51, 65, 85, 0.6);
+  --chart-axis: rgba(148, 163, 184, 0.7);
+  --chart-tooltip-bg: rgba(15, 23, 42, 0.97);
+  --chart-tooltip-border: rgba(51, 65, 85, 0.8);
+  --chart-tooltip-color: #f1f5f9;
+
+  /* Toast colors */
+  --toast-bg: #0f172a;
+  --toast-color: #f1f5f9;
+  --toast-border: rgba(51, 65, 85, 0.8);
+}
+
+/* Light mode overrides (opt-in) */
+.light {
+  --foreground-rgb: 15, 23, 42;
+  --background-rgb: 248, 250, 252;
+
   --chart-grid: rgba(0, 0, 0, 0.1);
   --chart-axis: rgba(0, 0, 0, 0.5);
   --chart-tooltip-bg: rgba(255, 255, 255, 0.95);
   --chart-tooltip-border: rgba(0, 0, 0, 0.1);
   --chart-tooltip-color: #000;
-  
-  /* Toast colors */
+
   --toast-bg: #ffffff;
   --toast-color: #000000;
   --toast-border: rgba(0, 0, 0, 0.1);
 }
 
+/* Keep .dark as alias for compatibility */
 .dark {
-  --foreground-rgb: 255, 255, 255;
-  --background-rgb: 17, 24, 39;
-  
-  /* Chart colors dark mode */
-  --chart-grid: rgba(255, 255, 255, 0.1);
-  --chart-axis: rgba(255, 255, 255, 0.5);
-  --chart-tooltip-bg: rgba(31, 41, 55, 0.95);
-  --chart-tooltip-border: rgba(255, 255, 255, 0.1);
-  --chart-tooltip-color: #fff;
-  
-  /* Toast colors dark mode */
-  --toast-bg: #1f2937;
-  --toast-color: #ffffff;
-  --toast-border: rgba(255, 255, 255, 0.1);
+  --foreground-rgb: 241, 245, 249;
+  --background-rgb: 2, 6, 23;
+
+  --chart-grid: rgba(51, 65, 85, 0.6);
+  --chart-axis: rgba(148, 163, 184, 0.7);
+  --chart-tooltip-bg: rgba(15, 23, 42, 0.97);
+  --chart-tooltip-border: rgba(51, 65, 85, 0.8);
+  --chart-tooltip-color: #f1f5f9;
+
+  --toast-bg: #0f172a;
+  --toast-color: #f1f5f9;
+  --toast-border: rgba(51, 65, 85, 0.8);
 }
 
 body {
@@ -43,50 +63,52 @@ body {
 
 @layer components {
   .btn {
-    @apply px-4 py-2 rounded font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2;
+    @apply px-4 py-2 rounded font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1;
   }
-  
+
   .btn-primary {
-    @apply btn bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500;
+    @apply btn bg-terminal-buy text-terminal-bg hover:opacity-90 focus:ring-terminal-buy;
   }
-  
+
   .btn-danger {
-    @apply btn bg-red-600 text-white hover:bg-red-700 focus:ring-red-500;
+    @apply btn bg-terminal-killswitch text-white hover:opacity-90 focus:ring-terminal-killswitch
+           shadow-[0_0_16px_rgba(220,38,38,0.4)] hover:shadow-[0_0_24px_rgba(220,38,38,0.6)];
   }
-  
+
   .btn-secondary {
-    @apply btn bg-gray-200 text-gray-800 hover:bg-gray-300 focus:ring-gray-500 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600;
+    @apply btn bg-terminal-panel text-terminal-muted border border-terminal-border
+           hover:text-terminal-text hover:border-terminal-muted focus:ring-terminal-border;
   }
-  
+
   .card {
-    @apply bg-white rounded-lg shadow-sm border border-gray-200 p-6 dark:bg-gray-800 dark:border-gray-700;
+    @apply bg-terminal-surface rounded-lg border border-terminal-border p-6;
   }
-  
+
   .badge {
     @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
   }
-  
+
   .badge-success {
-    @apply badge bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300;
+    @apply badge bg-terminal-buy/15 text-terminal-buy;
   }
-  
+
   .badge-danger {
-    @apply badge bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300;
+    @apply badge bg-terminal-sell/15 text-terminal-sell;
   }
-  
+
   .badge-warning {
-    @apply badge bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300;
+    @apply badge bg-warning-100 text-warning-700 dark:bg-warning-900/30 dark:text-warning-500;
   }
-  
+
   .badge-info {
-    @apply badge bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300;
+    @apply badge bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400;
   }
 }
 
-/* Custom scrollbar */
+/* Custom scrollbar — terminal style */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -94,25 +116,27 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 4px;
+  background: #334155;
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
-}
-
-.dark ::-webkit-scrollbar-thumb {
   background: #475569;
 }
 
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: #64748b;
+/* Kill switch glow animation */
+@keyframes kill-switch-pulse {
+  0%, 100% { box-shadow: 0 0 12px rgba(220, 38, 38, 0.4); }
+  50%       { box-shadow: 0 0 28px rgba(220, 38, 38, 0.7); }
 }
 
-/* Smooth transitions for theme switching */
+.kill-switch-active {
+  animation: kill-switch-pulse 2s ease-in-out infinite;
+}
+
+/* Smooth theme transitions */
 * {
-  transition-property: background-color, border-color;
+  transition-property: background-color, border-color, color;
   transition-duration: 150ms;
   transition-timing-function: ease-in-out;
 }

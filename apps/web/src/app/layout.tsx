@@ -15,13 +15,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className="min-h-screen bg-slate-50 dark:bg-gray-900">
+    <html lang="en" className="dark" suppressHydrationWarning>
+      <body className="min-h-screen bg-terminal-bg text-terminal-text">
         <ThemeProvider>
           <ToastProvider />
-          <div className="flex h-screen">
+          {/* Mobile: stacked layout (top bar + content). Desktop: sidebar + content side-by-side */}
+          <div className="flex flex-col md:flex-row h-screen overflow-hidden">
             <Navigation />
-            <main className="flex-1 overflow-auto p-8">
+            <main className="flex-1 overflow-auto">
               {children}
             </main>
           </div>

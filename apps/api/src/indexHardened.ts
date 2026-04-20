@@ -4,9 +4,11 @@
  * Entry point with all safety features enabled.
  */
 
+import http from 'http';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import { WebSocketServer } from 'ws';
 import config from './config';
 import logger from './utils/logger';
 import { connectAllAdapters, disconnectAllAdapters } from './brokers';
@@ -17,6 +19,7 @@ import { runStartupReconciliation } from './services/reconciliation';
 import { cleanupExpiredKeys } from './services/idempotency';
 import { cleanupOldHeartbeats } from './services/heartbeat';
 import { cleanupOldEntries as cleanupDLQ } from './services/deadLetter';
+import { broadcaster } from './services/wsbroadcaster';
 
 // Import routes
 import accountsRoutes from './routes/accounts';
@@ -24,7 +27,8 @@ import alertsRoutes from './routes/alerts';
 import ordersRoutes from './routes/orders';
 import riskEventsRoutes from './routes/risk-events';
 import systemRoutes from './routes/system';
-import { handleTradingViewWebhook } from './webhook/handlerHardened';
+import strategiesRoutes from './routes/strategies';
+import { handleTradingViewWebhook, handleTradingViewWebhookByStrategy } from './webhook/handlerHardened';
 
 const app = express();
 
@@ -68,8 +72,9 @@ app.get('/health', (req, res) => {
   });
 });
 
-// TradingView webhook endpoint (hardened)
+// TradingView webhook endpoints
 app.post('/webhook/tradingview', handleTradingViewWebhook);
+app.post('/webhook/tradingview/:strategyId', handleTradingViewWebhookByStrategy);
 
 // API routes
 app.use('/api/accounts', accountsRoutes);
@@ -77,6 +82,7 @@ app.use('/api/alerts', alertsRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/api/risk-events', riskEventsRoutes);
 app.use('/api/system', systemRoutes);
+app.use('/api/strategies', strategiesRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {
@@ -147,9 +153,18 @@ async function startServer() {
     await runStartupReconciliation();
     logger.info('Startup reconciliation complete');
 
-    // Start server
-    app.listen(config.server.port, config.server.host, () => {
-      logger.info(`Server listening on ${config.server.host}:${config.server.port}`);
+    // Start HTTP + WebSocket server
+    const httpServer = http.createServer(app);
+    const wss = new WebSocketServer({ server: httpServer });
+
+    wss.on('connection', (ws) => {
+      broadcaster.addClient(ws);
+      ws.on('close', () => broadcaster.removeClient(ws));
+      ws.on('error', () => broadcaster.removeClient(ws));
+    });
+
+    httpServer.listen(config.server.port, config.server.host, () => {
+      logger.info(`Server listening on ${config.server.host}:${config.server.port} (HTTP + WebSocket)`);
     });
 
     // Start periodic cleanup tasks
