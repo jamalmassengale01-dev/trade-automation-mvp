@@ -1,8 +1,11 @@
 // ============================================
 // TradingView Pine Script Example
 // ============================================
-// This is an example strategy that sends alerts
-// compatible with the trade automation webhook.
+// A generic EMA-crossover strategy showing the webhook alert format.
+// This is NOT the GB LIVE strategy — it is scaffolding for the generic
+// (non-preset) copier path.
+//
+// For GB LIVE alert setup, see: examples/tradingview-alert-setup.md
 
 //@version=5
 strategy("Webhook Strategy Example", overlay=true)
@@ -70,6 +73,10 @@ if shortCondition
 // Webhook Configuration
 // ============================================
 // 1. Create alert from this strategy
-// 2. Enable webhook notifications
-// 3. URL: http://your-server:3001/webhook/tradingview
-// 4. Header: X-Webhook-Secret: your-secret-key
+// 2. Set trigger to "Once Per Bar Close"
+// 3. Enable webhook notifications
+// 4. URL — copy from the dashboard (Strategies -> copy webhook URL):
+//      https://your-server/webhook/tradingview/<strategy-id>?secret=<webhook-secret>
+//
+// The secret goes in the URL, NOT a header: TradingView alerts cannot send
+// custom HTTP headers. Serve over HTTPS so the secret is not exposed.

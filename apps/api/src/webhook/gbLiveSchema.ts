@@ -41,6 +41,10 @@ export const gbLivePayloadSchema = z
     price: numberish.optional(),
     gtd_in_second: numberish.pipe(z.number().int().positive()).optional(),
     order_type: z.string().optional(),
+    // Preferred: stop distance straight from the strategy, in price points.
+    // Avoids the dollars -> points round trip, which depends on a contract count
+    // the server no longer uses (it sizes each account from its own ladder).
+    stop_pts: numberish.pipe(z.number().positive()).optional(),
     advance_tp_sl: z.array(legSchema).optional(),
     reverse_order_close: z.boolean().optional(),
     multiple_accounts: z.array(z.unknown()).optional(),
@@ -110,24 +114,37 @@ export function normalizeGbLive(body: unknown, now: number = Date.now()): Normal
     reverseOrderClose: p.reverse_order_close ?? false,
   };
 
-  if (p.data !== 'close' && p.advance_tp_sl && p.advance_tp_sl.length > 0) {
-    const legs: BracketLeg[] = p.advance_tp_sl.map((l) => ({
+  if (p.data !== 'close') {
+    const legs: BracketLeg[] = (p.advance_tp_sl ?? []).map((l) => ({
       quantity: l.quantity,
       dollarTp: l.dollar_tp,
       dollarSl: l.dollar_sl,
       breakeven: l.breakeven,
     }));
-    const bracket: BracketMeta = { legs };
-
     const spec = getInstrument(p.symbol);
-    const ref = legs.find((l) => l.quantity > 0);
-    if (spec && ref) {
-      bracket.stopPts = roundToTick(dollarsToPoints(ref.dollarSl, ref.quantity, spec), spec.tickSize);
-      const withTp = legs.filter((l) => l.quantity > 0 && l.dollarTp !== undefined);
-      if (withTp[0]) bracket.tp1Pts = roundToTick(dollarsToPoints(withTp[0].dollarTp!, withTp[0].quantity, spec), spec.tickSize);
-      if (withTp[1]) bracket.tp2Pts = roundToTick(dollarsToPoints(withTp[1].dollarTp!, withTp[1].quantity, spec), spec.tickSize);
+
+    // stop_pts wins when present; otherwise fall back to deriving the distance
+    // from the dollar-denominated legs (the original PickMyTrade payload shape).
+    let stopPts: number | undefined;
+    if (p.stop_pts !== undefined) {
+      stopPts = spec ? roundToTick(p.stop_pts, spec.tickSize) : p.stop_pts;
+    } else {
+      const ref = legs.find((l) => l.quantity > 0);
+      if (spec && ref) {
+        stopPts = roundToTick(dollarsToPoints(ref.dollarSl, ref.quantity, spec), spec.tickSize);
+      }
     }
-    meta.bracket = bracket;
+
+    if (stopPts !== undefined || legs.length > 0) {
+      const bracket: BracketMeta = { legs };
+      if (stopPts !== undefined) bracket.stopPts = stopPts;
+      if (spec) {
+        const withTp = legs.filter((l) => l.quantity > 0 && l.dollarTp !== undefined);
+        if (withTp[0]) bracket.tp1Pts = roundToTick(dollarsToPoints(withTp[0].dollarTp!, withTp[0].quantity, spec), spec.tickSize);
+        if (withTp[1]) bracket.tp2Pts = roundToTick(dollarsToPoints(withTp[1].dollarTp!, withTp[1].quantity, spec), spec.tickSize);
+      }
+      meta.bracket = bracket;
+    }
   }
 
   const alert: Record<string, unknown> = {

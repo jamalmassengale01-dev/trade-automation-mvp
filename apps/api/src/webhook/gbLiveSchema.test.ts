@@ -65,6 +65,40 @@ describe('gbLiveSchema', () => {
     expect(gbAlertId({ strategy_name: 's', symbol: 'x', data: 'buy' }, 1_000_000)).toHaveLength(32);
   });
 
+  it('accepts a minimal payload with stop_pts and no advance_tp_sl', () => {
+    const r = normalizeGbLive({
+      strategy_name: 'GB LIVE',
+      symbol: 'MNQ1!',
+      date: '2026-09-15T14:14:00Z',
+      data: 'buy',
+      price: '29526.50',
+      stop_pts: 20,
+      gtd_in_second: 120,
+      order_type: 'MKT',
+    });
+    expect(r.success).toBe(true);
+    const meta = r.alert!.metadata as any;
+    expect(meta.bracket.stopPts).toBe(20);
+    expect(meta.bracket.legs).toEqual([]);
+    expect(validateAlert(r.alert).success).toBe(true);
+  });
+
+  it('prefers stop_pts over the dollar-derived distance when both are present', () => {
+    // dollar legs would derive 83.5 pts; stop_pts says 20 and must win
+    const r = normalizeGbLive({ ...buy, stop_pts: 20 });
+    expect((r.alert!.metadata as any).bracket.stopPts).toBe(20);
+  });
+
+  it('rounds stop_pts to the instrument tick', () => {
+    const r = normalizeGbLive({ ...buy, advance_tp_sl: undefined, stop_pts: 20.31 });
+    expect((r.alert!.metadata as any).bracket.stopPts).toBe(20.25);
+  });
+
+  it('rejects a non-positive stop_pts', () => {
+    expect(normalizeGbLive({ ...buy, stop_pts: 0 }).success).toBe(false);
+    expect(normalizeGbLive({ ...buy, stop_pts: -5 }).success).toBe(false);
+  });
+
   it('normalizes a close-all signal without contracts or bracket', () => {
     const r = normalizeGbLive({
       strategy_name: 'GB LIVE', symbol: 'MNQ1!', date: '2026-09-15T14:30:00Z',
