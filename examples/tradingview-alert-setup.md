@@ -38,8 +38,8 @@ This is everything the server actually needs. Paste into **Message**:
   "symbol": "{{ticker}}",
   "date": "{{timenow}}",
   "data": "buy",
-  "price": "{{plot_1}}",
-  "stop_pts": {{plot_2}},
+  "price": "{{plot_0}}",
+  "stop_pts": {{plot_1}},
   "gtd_in_second": 120,
   "order_type": "MKT"
 }
@@ -58,9 +58,17 @@ Use `"data": "sell"` on the short alert. For the close-all alert:
 }
 ```
 
-`{{plot_1}}` is entry price and `{{plot_2}}` is stop distance in points, per the
-GB LIVE plot mapping. Use index-based placeholders — named `{{plot("Name")}}`
-placeholders are broken in TradingView.
+`{{plot_0}}` is entry price and `{{plot_1}}` is stop distance in points, in the
+EdgePilot Edition script (the two PMT plots are declared first, before any chart
+decoration, specifically so their index never shifts). Use index-based
+placeholders — named `{{plot("Name")}}` placeholders are broken in TradingView.
+
+**Everything else has moved server-side.** The EdgePilot Edition script no
+longer has a preset selector, risk ladder, DLL tracking, or Sniper Mode logic —
+none of it can be correct on a single chart feeding N broker accounts, each
+with its own independent progress and step. All of that now lives on the
+**Presets** dashboard page, edited per account, with no script change and no
+redeploy. See `CLAUDE.md` → LaunchPad section for what each preset field does.
 
 ---
 
@@ -114,18 +122,32 @@ If both are present, `stop_pts` wins.
 
 ## 5. Server-side gates
 
-A valid alert can still be declined. Rejections are logged to **Risk Events** with a reason:
+A valid alert can still be declined, independently per account. Rejections are
+logged to **Risk Events** with a reason:
 
 | Reason | Meaning |
 |---|---|
 | `outside_session` | Bar close not within 3:00–3:30 AM, 10:00–10:30 AM, or 2:00–2:30 PM ET |
 | `session_used` | That session already traded today on this account |
-| `max_trades_day` | 3-trade daily cap reached |
-| `dll_headroom` | Step risk exceeds remaining daily-loss-limit room |
-| `size_zero` | Stop too wide for the step risk to afford even 1 contract |
+| `max_trades_day` | Daily trade cap reached (preset-configurable) |
+| `dll_headroom` | Step (or Sniper) risk exceeds remaining daily-loss-limit room |
+| `day_locked_out` | A loss at the ladder's cap step locked out the rest of the broker day |
+| `trade_already_open` | This account already has an open GB trade — a second signal in the same window (e.g. a whipsaw) is correctly rejected rather than opening a second position |
+| `sniper_session` | Sniper Mode only trades London and NY AM, never NY PM |
+| `sniper_max_trades_day` | Sniper Mode's own (tighter) daily trade cap reached |
+| `size_zero` | Stop too wide for the risk to afford even 1 contract |
 | `stale_signal` | Alert older than 10 minutes (retry storm / outage protection) |
 
 The broker day rolls at **6:00 PM ET**, not midnight — daily counters reset then.
+
+**Sniper Mode** activates automatically, per account, when that account's
+progress toward its preset's `target_profit` is within `pass_zone_buffer`
+dollars — evaluated independently for every account a signal fans out to, since
+each has its own progress. It is never triggered by anything the alert carries.
+While active: risk becomes a percentage of the remaining target (capped at the
+daily loss cap), both take-profit legs sit at the same R-multiple, and the
+ladder is untouched by the outcome. All of this is configurable per preset on
+the **Presets** page — including turning it off (`pass_zone_buffer: 0`).
 
 ---
 
