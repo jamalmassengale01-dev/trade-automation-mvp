@@ -32,6 +32,24 @@ import { broadcaster } from '../services/wsbroadcaster';
 const webhookLogger = logger.child({ context: 'WebhookHandler' });
 
 /**
+ * Extract the webhook secret from the request.
+ *
+ * TradingView alerts cannot send custom HTTP headers — they only POST a body to a
+ * URL — so the secret must also be accepted from the query string. `?secret=` is
+ * the canonical form; `?t=` is accepted as a PickMyTrade-style alias.
+ * The header is still preferred for curl/server-to-server callers.
+ */
+function extractWebhookSecret(req: Request): string | undefined {
+  const fromHeader = req.headers['x-webhook-secret'];
+  if (typeof fromHeader === 'string' && fromHeader.length > 0) return fromHeader;
+
+  const fromQuery = req.query.secret ?? req.query.t;
+  if (typeof fromQuery === 'string' && fromQuery.length > 0) return fromQuery;
+
+  return undefined;
+}
+
+/**
  * Hardened Webhook Handler for TradingView alerts
  * 
  * Safety guarantees:
@@ -61,7 +79,7 @@ export async function handleTradingViewWebhook(
 
   try {
     // 1. Validate shared secret
-    const providedSecret = req.headers['x-webhook-secret'] as string;
+    const providedSecret = extractWebhookSecret(req);
     if (!providedSecret || providedSecret !== config.webhook.secret) {
       webhookLogger.warn('Invalid webhook secret', {
         requestId,
@@ -453,7 +471,7 @@ export async function handleTradingViewWebhookByStrategy(
     const strategy = strategyResult.rows[0];
 
     // 2. Validate strategy-specific secret
-    const providedSecret = req.headers['x-webhook-secret'] as string;
+    const providedSecret = extractWebhookSecret(req);
     if (!providedSecret || providedSecret !== strategy.webhook_secret) {
       webhookLogger.warn('Invalid webhook secret for strategy', {
         requestId, traceId, strategyId,

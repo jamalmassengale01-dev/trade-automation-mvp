@@ -8,8 +8,15 @@ const routeLogger = logger.child({ context: 'StrategiesRoute' });
 
 const WEBHOOK_BASE_URL = process.env.WEBHOOK_BASE_URL || 'http://localhost:3001';
 
-function webhookUrl(strategyId: string): string {
-  return `${WEBHOOK_BASE_URL}/webhook/tradingview/${strategyId}`;
+/**
+ * Full webhook URL, secret included as a query param.
+ *
+ * TradingView cannot send custom headers on alert webhooks, so the secret has to
+ * travel in the URL. This is the URL you paste into a TradingView alert as-is.
+ */
+function webhookUrl(strategyId: string, webhookSecret?: string): string {
+  const base = `${WEBHOOK_BASE_URL}/webhook/tradingview/${strategyId}`;
+  return webhookSecret ? `${base}?secret=${encodeURIComponent(webhookSecret)}` : base;
 }
 
 // GET /api/strategies
@@ -29,7 +36,7 @@ router.get('/', async (_req: Request, res: Response) => {
 
     const strategies = result.rows.map((row) => ({
       ...row,
-      webhookUrl: webhookUrl(row.id),
+      webhookUrl: webhookUrl(row.id as string, row.webhook_secret as string),
       risk_rules_count: Number(row.risk_rules_count),
       copier_mappings_count: Number(row.copier_mappings_count),
     }));
@@ -66,10 +73,13 @@ router.post('/', async (req: Request, res: Response) => {
 
     const strategy = {
       ...result.rows[0],
-      webhookUrl: webhookUrl(result.rows[0].id),
+      webhookUrl: webhookUrl(result.rows[0].id as string, result.rows[0].webhook_secret as string),
     };
 
-    routeLogger.info('Strategy created', { id: strategy.id, name: strategy.name });
+    routeLogger.info('Strategy created', {
+      id: result.rows[0].id as string,
+      name: result.rows[0].name as string,
+    });
     res.status(201).json({ success: true, data: strategy });
   } catch (error) {
     routeLogger.error('Failed to create strategy', { error: (error as Error).message });
@@ -101,7 +111,7 @@ router.get('/:id', async (req: Request, res: Response) => {
       success: true,
       data: {
         ...result.rows[0],
-        webhookUrl: webhookUrl(result.rows[0].id),
+        webhookUrl: webhookUrl(result.rows[0].id as string, result.rows[0].webhook_secret as string),
         risk_rules_count: Number(result.rows[0].risk_rules_count),
         copier_mappings_count: Number(result.rows[0].copier_mappings_count),
       },
@@ -145,7 +155,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
 
     res.json({
       success: true,
-      data: { ...result.rows[0], webhookUrl: webhookUrl(result.rows[0].id) },
+      data: { ...result.rows[0], webhookUrl: webhookUrl(result.rows[0].id as string, result.rows[0].webhook_secret as string) },
     });
   } catch (error) {
     routeLogger.error('Failed to update strategy', { error: (error as Error).message });
