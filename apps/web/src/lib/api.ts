@@ -94,6 +94,13 @@ export const api = {
   // GB LIVE / LaunchPad
   getGbAccounts: () => apiClient<{ success: boolean; data: GbAccount[] }>('/api/gb/accounts'),
   getGbPresets: () => apiClient<{ success: boolean; data: GbPreset[] }>('/api/gb/presets'),
+  getGbPreset: (id: string) => apiClient<{ success: boolean; data: GbPreset }>(`/api/gb/presets/${id}`),
+  createGbPreset: (body: Partial<GbPreset>) =>
+    apiClient<{ success: boolean; data: GbPreset }>('/api/gb/presets', { method: 'POST', body }),
+  updateGbPreset: (id: string, body: Partial<GbPreset>) =>
+    apiClient<{ success: boolean; data: GbPreset }>(`/api/gb/presets/${id}`, { method: 'PATCH', body }),
+  deleteGbPreset: (id: string) =>
+    apiClient<{ success: boolean; message: string }>(`/api/gb/presets/${id}`, { method: 'DELETE' }),
   getGbTrades: (page = 1, pageSize = 20) =>
     apiClient<{ success: boolean; data: { items: GbTrade[]; total: number; page: number; pageSize: number; totalPages: number } }>(`/api/gb/trades?page=${page}&pageSize=${pageSize}`),
   getGbAccountTrades: (accountId: string, page = 1, pageSize = 20) =>
@@ -169,6 +176,13 @@ export interface GbPreset {
   cap_step: number;
   max_trades_day: number;
   profit_split: string | number;
+  step2_mult: string | number;
+  step3_mult: string | number;
+  step4_mult: string | number;
+  pass_zone_buffer: string | number;
+  sniper_risk_pct: string | number;
+  sniper_tp_r: string | number;
+  sniper_max_trades_day: number;
   notes?: string;
 }
 
@@ -207,6 +221,10 @@ export interface GbAccount {
   preset: GbAccountPreset;
   ladderStep: number;
   dayRealizedPnl: number;
+  cumulativePnl: number;
+  remainingTarget: number | null;
+  inSniperMode: boolean;
+  dayLockedOut: boolean;
   dllRoom: number;
   lastDayKey: string | null;
   tradesToday: number;
@@ -236,6 +254,7 @@ export interface GbTrade {
   g2_qty: number;
   step_at_entry: number;
   step_risk: string | number;
+  is_sniper: boolean;
   state: 'entry_pending' | 'open' | 'tp1_hit' | 'closing' | 'closed' | 'failed';
   outcome: 'W' | 'W~' | 'L' | 'BE' | 'L!' | null;
   pnl: string | number | null;

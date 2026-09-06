@@ -166,7 +166,15 @@ export default function FleetPage() {
                   </td>
                   <td className="py-3 px-3">
                     {a.preset.id ? (
-                      <span className="font-mono text-terminal-text">Step {a.ladderStep}<span className="text-terminal-muted">/{a.preset.capStep}</span></span>
+                      <div>
+                        <span className="font-mono text-terminal-text">Step {a.ladderStep}<span className="text-terminal-muted">/{a.preset.capStep}</span></span>
+                        {a.dayLockedOut && (
+                          <div className="text-[10px] font-semibold text-terminal-sell mt-0.5">🔒 DAY LOCKED</div>
+                        )}
+                        {a.inSniperMode && !a.dayLockedOut && (
+                          <div className="text-[10px] font-semibold text-blue-400 mt-0.5">◆ SNIPER MODE (${a.remainingTarget?.toFixed(0)} left)</div>
+                        )}
+                      </div>
                     ) : <span className="text-terminal-muted">—</span>}
                   </td>
                   <td className="py-3 px-3">

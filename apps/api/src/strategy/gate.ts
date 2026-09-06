@@ -8,6 +8,8 @@ export interface AccountDayState {
   londonUsed: boolean;
   nyamUsed: boolean;
   nypmUsed: boolean;
+  /** Set by a Step-N loss at the preset's cap step; blocks entries for the rest of the broker day. */
+  dayLockedOut: boolean;
 }
 
 export interface GatePreset {
@@ -20,7 +22,11 @@ export type GateReason =
   | 'session_used'
   | 'max_trades_day'
   | 'dll_headroom'
-  | 'stale_signal';
+  | 'stale_signal'
+  | 'day_locked_out'
+  | 'trade_already_open'
+  | 'sniper_session'
+  | 'sniper_max_trades_day';
 
 export interface GateResult {
   allowed: boolean;
@@ -42,6 +48,7 @@ export function resetIfNewDay(state: AccountDayState, todayKey: string): { state
       londonUsed: false,
       nyamUsed: false,
       nypmUsed: false,
+      dayLockedOut: false,
     },
   };
 }
@@ -56,7 +63,9 @@ export function dllHeadroom(dailyLossCap: number, dayRealizedPnl: number): numbe
 }
 
 /**
- * Pre-trade gate. Order matters: cheapest / most common rejections first.
+ * Pre-trade gate for a normal (ladder) trade. Order matters: cheapest / most
+ * common rejections first. Callers should check "already has an open trade"
+ * separately (that check needs a DB query, so it isn't a pure function here).
  */
 export function checkGate(input: {
   state: AccountDayState;
@@ -67,6 +76,9 @@ export function checkGate(input: {
   const { state, preset, session, stepRisk } = input;
   const maxTrades = preset.maxTradesPerDay ?? 3;
 
+  if (state.dayLockedOut) {
+    return { allowed: false, reason: 'day_locked_out', message: 'Day locked out after a max-step loss' };
+  }
   if (!session) {
     return { allowed: false, reason: 'outside_session', message: 'Signal outside London / NY AM / NY PM windows' };
   }
@@ -83,6 +95,76 @@ export function checkGate(input: {
       reason: 'dll_headroom',
       message: `Step risk $${stepRisk} exceeds remaining DLL room $${room}`,
       details: { stepRisk, room, dayRealizedPnl: state.dayRealizedPnl, dailyLossCap: preset.dailyLossCap },
+    };
+  }
+  return { allowed: true };
+}
+
+// ============================================
+// SNIPER MODE
+// ============================================
+// Sniper Mode is a per-ACCOUNT property, not a per-signal one: the same alert
+// fans out to many accounts, each with its own progress toward its own target.
+// The script never decides Sniper Mode — the server evaluates it independently
+// for every mapped account from that account's own cumulative P&L.
+
+export interface SniperPreset {
+  targetProfit: number | null;
+  passZoneBuffer: number;
+  dailyLossCap: number;
+  sniperRiskPct: number;
+  sniperMaxTradesDay: number;
+}
+
+/** Dollars still needed to reach the preset's target. Null target (e.g. some funded modes) => never eligible. */
+export function remainingTarget(targetProfit: number | null, cumulativePnl: number): number {
+  if (targetProfit === null) return Infinity;
+  return Math.max(targetProfit - cumulativePnl, 0);
+}
+
+/** True once progress is within the pass-zone buffer of the target (and not already there). */
+export function isSniperEligible(remaining: number, passZoneBuffer: number): boolean {
+  return passZoneBuffer > 0 && remaining > 0 && remaining <= passZoneBuffer;
+}
+
+/** Sniper risk: a fraction of what's left to hit target, capped at the daily loss cap. */
+export function sniperRisk(remaining: number, sniperRiskPct: number, dailyLossCap: number): number {
+  return Number(Math.min(remaining * (sniperRiskPct / 100), dailyLossCap).toFixed(2));
+}
+
+const SNIPER_SESSIONS: ReadonlySet<Session> = new Set(['london', 'nyam']);
+
+/** Sniper trades are restricted to London + NY AM (never NY PM), and a tighter daily count. */
+export function checkSniperGate(input: {
+  state: AccountDayState;
+  preset: SniperPreset;
+  session: Session | null;
+  risk: number;
+}): GateResult {
+  const { state, preset, session, risk } = input;
+
+  if (state.dayLockedOut) {
+    return { allowed: false, reason: 'day_locked_out', message: 'Day locked out after a max-step loss' };
+  }
+  if (!session) {
+    return { allowed: false, reason: 'outside_session', message: 'Signal outside London / NY AM / NY PM windows' };
+  }
+  if (!SNIPER_SESSIONS.has(session)) {
+    return { allowed: false, reason: 'sniper_session', message: 'Sniper Mode trades only London and NY AM', details: { session } };
+  }
+  if (sessionUsed(state, session)) {
+    return { allowed: false, reason: 'session_used', message: `${session} session already traded today`, details: { session } };
+  }
+  if (state.tradesToday >= preset.sniperMaxTradesDay) {
+    return { allowed: false, reason: 'sniper_max_trades_day', message: `Sniper max ${preset.sniperMaxTradesDay} trades/day reached`, details: { tradesToday: state.tradesToday } };
+  }
+  const room = dllHeadroom(preset.dailyLossCap, state.dayRealizedPnl);
+  if (risk > room) {
+    return {
+      allowed: false,
+      reason: 'dll_headroom',
+      message: `Sniper risk $${risk} exceeds remaining DLL room $${room}`,
+      details: { risk, room, dayRealizedPnl: state.dayRealizedPnl, dailyLossCap: preset.dailyLossCap },
     };
   }
   return { allowed: true };

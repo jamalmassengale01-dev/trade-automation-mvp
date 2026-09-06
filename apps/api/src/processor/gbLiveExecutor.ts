@@ -2,8 +2,13 @@
  * GB LIVE executor — the per-account path for alerts that carry bracket metadata.
  *
  * For every copier mapping whose account has a prop-firm preset:
- *   lock account → roll broker day → session/3-per-day/DLL gate → size from ladder step
- *   → persist gb_trades row → reserve session + trade count → enqueue bracket execution.
+ *   lock account → roll broker day → no-concurrent-trade guard → per-account
+ *   Sniper Mode check → session/count/DLL gate → size → persist gb_trades row
+ *   → reserve session + trade count → enqueue bracket execution.
+ *
+ * Sniper Mode is evaluated per account, not per signal: the same alert fans
+ * out to many accounts, each with its own progress toward its own preset
+ * target, so eligibility can only be decided here, independently per account.
  *
  * Accounts without a preset are left to the generic copier path.
  */
@@ -15,10 +20,13 @@ import { isBracketBroker } from '../brokers/bracketInterface';
 import { gbTradeQueue } from '../jobs/queues';
 import { broadcaster } from '../services/wsbroadcaster';
 import { getInstrument, rootSymbol } from '../strategy/instruments';
-import { stepRisk } from '../strategy/ladder';
+import { stepRisk, StepMultipliers } from '../strategy/ladder';
 import { contractsFor, splitGroups } from '../strategy/sizing';
 import { brokerDayKey, getSession, sessionFlagColumn, toDayKey } from '../strategy/sessions';
-import { checkGate, resetIfNewDay, AccountDayState } from '../strategy/gate';
+import {
+  checkGate, checkSniperGate, resetIfNewDay, AccountDayState,
+  remainingTarget, isSniperEligible, sniperRisk,
+} from '../strategy/gate';
 import { bracketManager } from '../strategy/bracketManager';
 import type { GbLiveMeta } from '../webhook/gbLiveSchema';
 import logger from '../utils/logger';
@@ -59,6 +67,8 @@ interface AccountWithPreset extends Record<string, any> {
   preset_id: string | null;
   ladder_step: number;
   day_realized_pnl: string | number;
+  cumulative_pnl: string | number;
+  day_locked_out: boolean;
   last_day_key: string | Date | null;
   trades_today: number;
   london_used: boolean;
@@ -69,6 +79,16 @@ interface AccountWithPreset extends Record<string, any> {
   p_max_contracts: number | null;
   p_cap_step: number | null;
   p_max_trades_day: number | null;
+  p_step2_mult: string | number | null;
+  p_step3_mult: string | number | null;
+  p_step4_mult: string | number | null;
+  p_tp1_r: string | number | null;
+  p_tp2_r: string | number | null;
+  p_target_profit: string | number | null;
+  p_pass_zone_buffer: string | number | null;
+  p_sniper_risk_pct: string | number | null;
+  p_sniper_tp_r: string | number | null;
+  p_sniper_max_trades_day: number | null;
 }
 
 export async function executeGbLiveAlert(input: GbExecInput): Promise<GbExecResult> {
@@ -110,11 +130,21 @@ async function processAccount(
 ): Promise<{ status: GbAccountStatus; reason?: string; tradeId?: string }> {
   const r = await query<AccountWithPreset>(
     `SELECT ba.*,
-            p.base_risk      AS p_base_risk,
-            p.daily_loss_cap AS p_daily_loss_cap,
-            p.max_contracts  AS p_max_contracts,
-            p.cap_step       AS p_cap_step,
-            p.max_trades_day AS p_max_trades_day
+            p.base_risk             AS p_base_risk,
+            p.daily_loss_cap        AS p_daily_loss_cap,
+            p.max_contracts         AS p_max_contracts,
+            p.cap_step              AS p_cap_step,
+            p.max_trades_day        AS p_max_trades_day,
+            p.step2_mult            AS p_step2_mult,
+            p.step3_mult            AS p_step3_mult,
+            p.step4_mult            AS p_step4_mult,
+            p.tp1_r                 AS p_tp1_r,
+            p.tp2_r                 AS p_tp2_r,
+            p.target_profit         AS p_target_profit,
+            p.pass_zone_buffer      AS p_pass_zone_buffer,
+            p.sniper_risk_pct       AS p_sniper_risk_pct,
+            p.sniper_tp_r           AS p_sniper_tp_r,
+            p.sniper_max_trades_day AS p_sniper_max_trades_day
      FROM broker_accounts ba
      LEFT JOIN presets p ON p.id = ba.preset_id
      WHERE ba.id = $1`,
@@ -143,6 +173,20 @@ async function processAccount(
     return { status: 'rejected', reason: 'stale_signal' };
   }
 
+  // ---- no concurrent trade per account --------------------------------
+  // The Pine indicator used to gate on its own local "not tradeActive" flag.
+  // That check has no server equivalent unless we ask the DB directly —
+  // without it, a whipsaw (long setup then short setup in the same window)
+  // could try to open a second position on an account that already has one.
+  const openTrade = await query<{ id: string }>(
+    `SELECT id FROM gb_trades WHERE broker_account_id = $1 AND state NOT IN ('closed', 'failed') LIMIT 1`,
+    [acct.id]
+  );
+  if (openTrade.rowCount! > 0) {
+    await riskEvent(acct.id, strategyId, 'gb_trade_already_open', 'Account already has an open GB trade', { openTradeId: openTrade.rows[0].id });
+    return { status: 'rejected', reason: 'trade_already_open' };
+  }
+
   // ---- broker day roll ---------------------------------------------
   const todayKey = brokerDayKey(now);
   const before: AccountDayState = {
@@ -153,30 +197,72 @@ async function processAccount(
     londonUsed: !!acct.london_used,
     nyamUsed: !!acct.nyam_used,
     nypmUsed: !!acct.nypm_used,
+    dayLockedOut: !!acct.day_locked_out,
   };
   const { state, reset } = resetIfNewDay(before, todayKey);
   if (reset) {
     await query(
       `UPDATE broker_accounts SET last_day_key=$2::date, day_realized_pnl=0, trades_today=0,
-              london_used=false, nyam_used=false, nypm_used=false, updated_at=NOW() WHERE id=$1`,
+              london_used=false, nyam_used=false, nypm_used=false, day_locked_out=false, updated_at=NOW() WHERE id=$1`,
       [acct.id, todayKey]
     );
   }
 
-  // ---- gate ----------------------------------------------------------
+  // ---- per-account Sniper Mode eligibility ----------------------------
+  // Evaluated independently for THIS account from ITS OWN progress toward
+  // target — never from anything the signal carries. Two accounts on the
+  // same alert can land in different branches here.
   const preset = {
     baseRisk: Number(acct.p_base_risk),
     dailyLossCap: Number(acct.p_daily_loss_cap),
     maxContracts: Number(acct.p_max_contracts ?? 0),
-    capStep: Number(acct.p_cap_step ?? 3),
+    capStep: Number(acct.p_cap_step ?? 4),
     maxTradesPerDay: Number(acct.p_max_trades_day ?? 3),
+    multipliers: {
+      step2: Number(acct.p_step2_mult ?? 1),
+      step3: Number(acct.p_step3_mult ?? 2),
+      step4: Number(acct.p_step4_mult ?? 4),
+    } satisfies StepMultipliers,
+    tp1R: Number(acct.p_tp1_r ?? 0.5),
+    tp2R: Number(acct.p_tp2_r ?? 2.0),
+    targetProfit: acct.p_target_profit !== null ? Number(acct.p_target_profit) : null,
+    passZoneBuffer: Number(acct.p_pass_zone_buffer ?? 0),
+    sniperRiskPct: Number(acct.p_sniper_risk_pct ?? 50),
+    sniperTpR: Number(acct.p_sniper_tp_r ?? 1.0),
+    sniperMaxTradesDay: Number(acct.p_sniper_max_trades_day ?? 2),
   };
+
+  const remaining = remainingTarget(preset.targetProfit, Number(acct.cumulative_pnl ?? 0));
+  const inSniperMode = isSniperEligible(remaining, preset.passZoneBuffer);
   const session = getSession(alertTime);
-  const risk = stepRisk(preset.baseRisk, state.ladderStep, preset.capStep);
-  const gate = checkGate({ state, preset, session, stepRisk: risk });
-  if (!gate.allowed) {
-    await riskEvent(acct.id, strategyId, `gb_${gate.reason}`, gate.message ?? gate.reason ?? 'gate', { ...gate.details, session, step: state.ladderStep, stepRisk: risk });
-    return { status: 'rejected', reason: gate.reason };
+
+  let risk: number;
+  let tp1R: number;
+  let tp2R: number;
+
+  if (inSniperMode) {
+    risk = sniperRisk(remaining, preset.sniperRiskPct, preset.dailyLossCap);
+    tp1R = preset.sniperTpR;
+    tp2R = preset.sniperTpR;
+    const gate = checkSniperGate({
+      state,
+      preset: { targetProfit: preset.targetProfit, passZoneBuffer: preset.passZoneBuffer, dailyLossCap: preset.dailyLossCap, sniperRiskPct: preset.sniperRiskPct, sniperMaxTradesDay: preset.sniperMaxTradesDay },
+      session,
+      risk,
+    });
+    if (!gate.allowed) {
+      await riskEvent(acct.id, strategyId, `gb_${gate.reason}`, gate.message ?? gate.reason ?? 'sniper gate', { ...gate.details, session, remaining, sniper: true });
+      return { status: 'rejected', reason: gate.reason };
+    }
+  } else {
+    risk = stepRisk(preset.baseRisk, state.ladderStep, { capStep: preset.capStep, multipliers: preset.multipliers, dailyLossCap: preset.dailyLossCap });
+    tp1R = preset.tp1R;
+    tp2R = preset.tp2R;
+    const gate = checkGate({ state, preset: { dailyLossCap: preset.dailyLossCap, maxTradesPerDay: preset.maxTradesPerDay }, session, stepRisk: risk });
+    if (!gate.allowed) {
+      await riskEvent(acct.id, strategyId, `gb_${gate.reason}`, gate.message ?? gate.reason ?? 'gate', { ...gate.details, session, step: state.ladderStep, stepRisk: risk });
+      return { status: 'rejected', reason: gate.reason };
+    }
   }
 
   // ---- sizing --------------------------------------------------------
@@ -210,25 +296,31 @@ async function processAccount(
   // ---- persist + reserve gate ---------------------------------------
   const ins = await query<{ id: string }>(
     `INSERT INTO gb_trades (broker_account_id, trade_request_id, alert_id, day_key, session, direction, symbol, root_symbol,
-                            ref_price, stop_pts, contracts, g1_qty, g2_qty, step_at_entry, step_risk, gtd_seconds, state)
-     VALUES ($1,$2,$3,$4::date,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'entry_pending') RETURNING id`,
+                            ref_price, stop_pts, contracts, g1_qty, g2_qty, step_at_entry, step_risk, gtd_seconds,
+                            tp1_r, tp2_r, is_sniper, state)
+     VALUES ($1,$2,$3,$4::date,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,'entry_pending') RETURNING id`,
     [acct.id, tradeRequestId, alertRecordId, todayKey, session, direction, symbol, rootSymbol(alert.symbol),
-     alert.price ?? null, stopPts, contracts, g1, g2, state.ladderStep, risk, meta.gtdSeconds ?? 120]
+     alert.price ?? null, stopPts, contracts, g1, g2, inSniperMode ? 0 : state.ladderStep, risk, meta.gtdSeconds ?? 120,
+     tp1R, tp2R, inSniperMode]
   );
   const tradeId = ins.rows[0].id;
 
+  const sessionCol = sessionFlagColumn(session!);
   await query(
-    `UPDATE broker_accounts SET trades_today = trades_today + 1, ${sessionFlagColumn(session!)} = true,
+    `UPDATE broker_accounts SET trades_today = trades_today + 1, ${sessionCol} = true,
             last_day_key = $2::date, updated_at = NOW() WHERE id = $1`,
     [acct.id, todayKey]
   );
 
   await gbTradeQueue.add('execute-gb-trade', { tradeId }, { jobId: `gb-${tradeId}`, attempts: 1, removeOnComplete: true });
 
-  log.info('GB trade queued', { tradeId, accountId: acct.id, account: acct.name, symbol, direction, contracts, g1, g2, step: state.ladderStep, stepRisk: risk, stopPts, session });
+  log.info('GB trade queued', {
+    tradeId, accountId: acct.id, account: acct.name, symbol, direction, contracts, g1, g2,
+    sniper: inSniperMode, step: inSniperMode ? null : state.ladderStep, risk, tp1R, tp2R, stopPts, session,
+  });
   broadcaster.broadcast('trade_created', {
     tradeId, accountId: acct.id, accountName: acct.name, symbol, direction, contracts, g1, g2,
-    step: state.ladderStep, stepRisk: risk, stopPts, session,
+    sniper: inSniperMode, step: inSniperMode ? null : state.ladderStep, stepRisk: risk, stopPts, session,
   });
 
   return { status: 'queued', tradeId };

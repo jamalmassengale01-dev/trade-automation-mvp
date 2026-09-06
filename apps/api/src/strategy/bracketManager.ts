@@ -60,6 +60,9 @@ export interface GbTradeRow {
   g2_qty: number;
   step_at_entry: number;
   step_risk: string | number;
+  tp1_r: string | number | null;
+  tp2_r: string | number | null;
+  is_sniper: boolean;
   gtd_seconds: number;
   state: 'entry_pending' | 'open' | 'tp1_hit' | 'closing' | 'closed' | 'failed';
   outcome: TradeOutcome | null;
@@ -165,15 +168,17 @@ class BracketManager {
     }
 
     const inst = requireInstrument(trade.root_symbol);
-    const preset = await this.presetFor(account);
+    // R-multiples are stored per-trade (set at signal time from the account's
+    // preset — or the preset's sniper_tp_r for a Sniper Mode trade) so a
+    // Sniper trade's 1R/1R doesn't depend on re-reading the preset later.
     const entryPrice = avgPrice([...g1Fills, ...g2Fills]);
     const levels = computeLevels({
       entry: entryPrice,
       direction: trade.direction,
       stopPts: num(trade.stop_pts),
       tickSize: inst.tickSize,
-      tp1R: preset?.tp1_r ?? 0.5,
-      tp2R: preset?.tp2_r ?? 2.0,
+      tp1R: trade.tp1_r !== null ? num(trade.tp1_r) : 0.5,
+      tp2R: trade.tp2_r !== null ? num(trade.tp2_r) : 2.0,
     });
     const entryTime = new Date(Math.max(...fills.map((f) => Date.parse(f.at))));
 
@@ -480,13 +485,23 @@ class BracketManager {
     );
     const account = acct.rows[0];
     const dailyLossCap = num(account?.preset_daily_loss_cap);
-    const capStep = Number(account?.preset_cap_step ?? 3);
+    const capStep = Number(account?.preset_cap_step ?? 4);
     const sameDay = toDayKey(account?.last_day_key) === toDayKey(trade.day_key);
     const dayPnlAfter = (sameDay ? num(account?.day_realized_pnl) : 0) + pnl;
     const breached = dailyLossCap > 0 && dayPnlAfter <= -dailyLossCap;
 
     const outcome = classifyOutcome({ pnl, tp1Hit, tp2Hit, breachedDll: breached });
-    const step = nextStep(Number(account?.ladder_step ?? trade.step_at_entry), outcome, capStep);
+
+    // Sniper trades never touch the ladder (per the real strategy: "no shot
+    // banking, no ladder change" either way). A non-sniper loss AT the
+    // preset's cap step locks out the rest of the broker day and resets to
+    // Step 1 — distinct from an ordinary advance, which nextStep() alone
+    // can't express since it just holds at capStep on repeated losses.
+    const currentStep = Number(account?.ladder_step ?? trade.step_at_entry);
+    const isLoss = outcome === 'L' || outcome === 'L!';
+    const hitCapStepLoss = !trade.is_sniper && isLoss && currentStep >= capStep;
+    const step = trade.is_sniper ? currentStep : hitCapStepLoss ? 1 : nextStep(currentStep, outcome, capStep);
+
     const exitTime = exits.length ? new Date(Math.max(...exits.map((f) => Date.parse(f.at)))) : new Date();
 
     await query(`UPDATE gb_trades SET state='closed', outcome=$2, pnl=$3, exit_time=$4 WHERE id=$1`, [trade.id, outcome, pnl, exitTime]);
@@ -495,8 +510,10 @@ class BracketManager {
       await query(
         `UPDATE broker_accounts SET ladder_step=$2,
            day_realized_pnl = CASE WHEN last_day_key = $3::date THEN day_realized_pnl + $4 ELSE day_realized_pnl END,
+           cumulative_pnl = cumulative_pnl + $4,
+           day_locked_out = CASE WHEN $5 THEN true ELSE day_locked_out END,
            updated_at=NOW() WHERE id=$1`,
-        [account.id, step, toDayKey(trade.day_key), pnl]
+        [account.id, step, toDayKey(trade.day_key), pnl, hitCapStepLoss]
       );
       await query(
         `INSERT INTO account_daily_pnl (account_id, day_key, realized_pnl, trades, updated_at) VALUES ($1,$2,$3,1,NOW())
@@ -506,15 +523,25 @@ class BracketManager {
       );
     }
 
-    log.info('Trade closed', { tradeId: trade.id, accountId: trade.broker_account_id, outcome, pnl, nextStep: step, breachedDll: breached });
+    log.info('Trade closed', {
+      tradeId: trade.id, accountId: trade.broker_account_id, outcome, pnl, sniper: trade.is_sniper,
+      nextStep: step, dayLockedOut: hitCapStepLoss, breachedDll: breached,
+    });
     broadcaster.broadcast('trade_created', {
       event: 'trade_closed', tradeId: trade.id, accountId: trade.broker_account_id, accountName: account?.name,
-      symbol: trade.symbol, direction: trade.direction, outcome, pnl, nextStep: step, dayPnl: dayPnlAfter,
+      symbol: trade.symbol, direction: trade.direction, outcome, pnl, sniper: trade.is_sniper,
+      nextStep: step, dayPnl: dayPnlAfter, dayLockedOut: hitCapStepLoss,
     });
     if (breached) {
       await query(
         `INSERT INTO risk_events (type, rule_type, account_id, message, details, created_at) VALUES ('warning','gb_dll_breached',$1,$2,$3,NOW())`,
         [trade.broker_account_id, `Daily loss cap reached (day P&L ${dayPnlAfter.toFixed(2)})`, JSON.stringify({ tradeId: trade.id, dayPnl: dayPnlAfter, dailyLossCap })]
+      );
+    }
+    if (hitCapStepLoss) {
+      await query(
+        `INSERT INTO risk_events (type, rule_type, account_id, message, details, created_at) VALUES ('warning','gb_day_locked_out',$1,$2,$3,NOW())`,
+        [trade.broker_account_id, `Step ${capStep} loss — day locked out, ladder reset to Step 1`, JSON.stringify({ tradeId: trade.id, capStep })]
       );
     }
   }
@@ -626,13 +653,6 @@ class BracketManager {
     const adapter = getBrokerAdapter(account.broker_type);
     if (!(await adapter.healthCheck())) await adapter.connect();
     return { account, broker: isBracketBroker(adapter) ? adapter : null };
-  }
-
-  private async presetFor(account: AccountRow): Promise<{ tp1_r: number; tp2_r: number } | null> {
-    if (!account.preset_id) return null;
-    const r = await query<{ tp1_r: string; tp2_r: string }>('SELECT tp1_r, tp2_r FROM presets WHERE id=$1', [account.preset_id]);
-    const p = r.rows[0];
-    return p ? { tp1_r: Number(p.tp1_r), tp2_r: Number(p.tp2_r) } : null;
   }
 }
 

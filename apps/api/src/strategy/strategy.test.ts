@@ -3,7 +3,10 @@ import { rootSymbol, getInstrument, roundToTick, dollarsToPoints } from './instr
 import { stepRisk, nextStep, classifyOutcome, clampStep } from './ladder';
 import { contractsFor, splitGroups, computeLevels, realizedPnl, avgPrice } from './sizing';
 import { getSession, brokerDayKey, etParts, toDayKey } from './sessions';
-import { checkGate, resetIfNewDay, dllHeadroom, AccountDayState } from './gate';
+import {
+  checkGate, resetIfNewDay, dllHeadroom, AccountDayState,
+  remainingTarget, isSniperEligible, sniperRisk, checkSniperGate,
+} from './gate';
 
 // ------------------------------------------------------------------
 // instruments
@@ -44,17 +47,30 @@ describe('instruments', () => {
 // ladder
 // ------------------------------------------------------------------
 describe('ladder', () => {
-  it('scales base risk per step: 1×, 1×, 2×, 3×', () => {
+  it('scales base risk per step using the default multipliers: 1x, 1x, 2x, 4x', () => {
     expect(stepRisk(334, 1)).toBe(334);
     expect(stepRisk(334, 2)).toBe(334);
     expect(stepRisk(334, 3)).toBe(668);
-    expect(stepRisk(334, 4, 4)).toBe(1002);
+    expect(stepRisk(334, 4, { capStep: 4 })).toBe(1336);
   });
 
   it('caps at capStep', () => {
-    expect(stepRisk(334, 4)).toBe(668); // capStep default 3
+    expect(stepRisk(334, 4)).toBe(668); // capStep default 3 -> step 4 clamps to step 3's multiplier
     expect(clampStep(9, 3)).toBe(3);
     expect(clampStep(0)).toBe(1);
+  });
+
+  it('accepts per-preset multipliers (e.g. an intraday preset using 1/2/3/3)', () => {
+    const multipliers = { step2: 2, step3: 3, step4: 3 };
+    expect(stepRisk(167, 1, { multipliers })).toBe(167);
+    expect(stepRisk(167, 2, { multipliers })).toBe(334);
+    expect(stepRisk(167, 3, { multipliers, capStep: 4 })).toBe(501);
+    expect(stepRisk(167, 4, { multipliers, capStep: 4 })).toBe(501);
+  });
+
+  it('caps step risk at the daily loss cap when provided', () => {
+    expect(stepRisk(334, 3, { dailyLossCap: 500 })).toBe(500);
+    expect(stepRisk(334, 2, { dailyLossCap: 500 })).toBe(334);
   });
 
   it('resets on any win, advances on loss, holds on BE', () => {
@@ -188,18 +204,24 @@ describe('sessions', () => {
 describe('gate', () => {
   const base: AccountDayState = {
     ladderStep: 1, dayRealizedPnl: 0, lastDayKey: '2026-09-15',
-    tradesToday: 0, londonUsed: false, nyamUsed: false, nypmUsed: false,
+    tradesToday: 0, londonUsed: false, nyamUsed: false, nypmUsed: false, dayLockedOut: false,
   };
   const preset = { dailyLossCap: 1000 };
 
   it('resets counters on a new broker day only', () => {
-    const dirty = { ...base, dayRealizedPnl: -500, tradesToday: 2, nyamUsed: true };
+    const dirty = { ...base, dayRealizedPnl: -500, tradesToday: 2, nyamUsed: true, dayLockedOut: true };
     const same = resetIfNewDay(dirty, '2026-09-15');
     expect(same.reset).toBe(false);
     expect(same.state).toBe(dirty);
     const next = resetIfNewDay(dirty, '2026-09-16');
     expect(next.reset).toBe(true);
-    expect(next.state).toMatchObject({ dayRealizedPnl: 0, tradesToday: 0, nyamUsed: false, lastDayKey: '2026-09-16', ladderStep: 1 });
+    expect(next.state).toMatchObject({ dayRealizedPnl: 0, tradesToday: 0, nyamUsed: false, lastDayKey: '2026-09-16', ladderStep: 1, dayLockedOut: false });
+  });
+
+  it('rejects everything once locked out for the day, regardless of session/count/DLL', () => {
+    const locked = { ...base, dayLockedOut: true };
+    expect(checkGate({ state: locked, preset, session: 'nyam', stepRisk: 334 }).reason).toBe('day_locked_out');
+    expect(checkSniperGate({ state: locked, preset: sniperPreset, session: 'nyam', risk: 100 }).reason).toBe('day_locked_out');
   });
 
   it('allows a clean first trade', () => {
@@ -224,5 +246,49 @@ describe('gate', () => {
     expect(checkGate({ state: { ...base, dayRealizedPnl: -600 }, preset, session: 'nypm', stepRisk: 334 }).allowed).toBe(true);
     // step 3 ($668) after one loss of $334 → room $666 → blocked by $2
     expect(checkGate({ state: { ...base, dayRealizedPnl: -334 }, preset, session: 'nypm', stepRisk: 668 }).reason).toBe('dll_headroom');
+  });
+});
+
+const sniperPreset = { targetProfit: 3000, passZoneBuffer: 200, dailyLossCap: 1000, sniperRiskPct: 50, sniperMaxTradesDay: 2 };
+
+describe('sniper mode', () => {
+  const base: AccountDayState = {
+    ladderStep: 1, dayRealizedPnl: 0, lastDayKey: '2026-09-15',
+    tradesToday: 0, londonUsed: false, nyamUsed: false, nypmUsed: false, dayLockedOut: false,
+  };
+
+  it('computes remaining target and eligibility per account, independent of the signal', () => {
+    expect(remainingTarget(3000, 2850)).toBe(150);
+    expect(remainingTarget(3000, 0)).toBe(3000);
+    expect(remainingTarget(3000, 3000)).toBe(0);
+    expect(remainingTarget(3000, 3200)).toBe(0); // never negative
+    expect(remainingTarget(null, 500)).toBe(Infinity); // funded/no-target preset never sniper-eligible
+
+    expect(isSniperEligible(150, 200)).toBe(true);
+    expect(isSniperEligible(0, 200)).toBe(false); // already there — normal target-reached logic takes over
+    expect(isSniperEligible(500, 200)).toBe(false); // too far out, use the ladder
+    expect(isSniperEligible(150, 0)).toBe(false); // buffer disabled
+  });
+
+  it('sizes sniper risk as a % of remaining target, capped at the daily loss cap', () => {
+    expect(sniperRisk(150, 50, 1000)).toBe(75);
+    expect(sniperRisk(3000, 50, 1000)).toBe(1000); // capped
+  });
+
+  it('restricts sniper trades to London and NY AM, never NY PM', () => {
+    expect(checkSniperGate({ state: base, preset: sniperPreset, session: 'london', risk: 75 }).allowed).toBe(true);
+    expect(checkSniperGate({ state: base, preset: sniperPreset, session: 'nyam', risk: 75 }).allowed).toBe(true);
+    expect(checkSniperGate({ state: base, preset: sniperPreset, session: 'nypm', risk: 75 }).reason).toBe('sniper_session');
+    expect(checkSniperGate({ state: base, preset: sniperPreset, session: null, risk: 75 }).reason).toBe('outside_session');
+  });
+
+  it('caps sniper trades at sniperMaxTradesDay, tighter than the normal 3/day', () => {
+    expect(checkSniperGate({ state: { ...base, tradesToday: 2 }, preset: sniperPreset, session: 'london', risk: 75 }).reason).toBe('sniper_max_trades_day');
+    expect(checkSniperGate({ state: { ...base, tradesToday: 1 }, preset: sniperPreset, session: 'london', risk: 75 }).allowed).toBe(true);
+  });
+
+  it('still enforces per-session-once and DLL headroom for sniper trades', () => {
+    expect(checkSniperGate({ state: { ...base, londonUsed: true }, preset: sniperPreset, session: 'london', risk: 75 }).reason).toBe('session_used');
+    expect(checkSniperGate({ state: { ...base, dayRealizedPnl: -950 }, preset: sniperPreset, session: 'london', risk: 75 }).reason).toBe('dll_headroom');
   });
 });
