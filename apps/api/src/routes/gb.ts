@@ -197,7 +197,7 @@ router.get('/accounts', async (_req: Request, res: Response) => {
         lt.outcome AS last_trade_outcome, lt.pnl AS last_trade_pnl, lt.exit_time AS last_trade_exit_time,
         lt.created_at AS last_trade_created_at
       FROM broker_accounts ba
-      JOIN presets p ON p.id = ba.preset_id
+      LEFT JOIN presets p ON p.id = ba.preset_id
       LEFT JOIN LATERAL (
         SELECT * FROM gb_trades gt WHERE gt.broker_account_id = ba.id
         ORDER BY gt.created_at DESC LIMIT 1
