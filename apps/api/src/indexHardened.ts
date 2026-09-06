@@ -20,6 +20,9 @@ import { cleanupExpiredKeys } from './services/idempotency';
 import { cleanupOldHeartbeats } from './services/heartbeat';
 import { cleanupOldEntries as cleanupDLQ } from './services/deadLetter';
 import { broadcaster } from './services/wsbroadcaster';
+import { bracketManager } from './strategy/bracketManager';
+// Importing workersHardened starts the alert/order/gb-trade BullMQ workers as a side effect.
+import './jobs/workersHardened';
 
 // Import routes
 import accountsRoutes from './routes/accounts';
@@ -28,6 +31,7 @@ import ordersRoutes from './routes/orders';
 import riskEventsRoutes from './routes/risk-events';
 import systemRoutes from './routes/system';
 import strategiesRoutes from './routes/strategies';
+import gbRoutes from './routes/gb';
 import { handleTradingViewWebhook, handleTradingViewWebhookByStrategy } from './webhook/handlerHardened';
 
 const app = express();
@@ -83,6 +87,7 @@ app.use('/api/orders', ordersRoutes);
 app.use('/api/risk-events', riskEventsRoutes);
 app.use('/api/system', systemRoutes);
 app.use('/api/strategies', strategiesRoutes);
+app.use('/api/gb', gbRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {
@@ -152,6 +157,11 @@ async function startServer() {
     logger.info('Running startup reconciliation...');
     await runStartupReconciliation();
     logger.info('Startup reconciliation complete');
+
+    // Resume any GB LIVE trades left mid-lifecycle by a previous crash/restart
+    logger.info('Rehydrating open GB LIVE trades...');
+    await bracketManager.rehydrate();
+    logger.info('GB LIVE rehydration complete');
 
     // Start HTTP + WebSocket server
     const httpServer = http.createServer(app);

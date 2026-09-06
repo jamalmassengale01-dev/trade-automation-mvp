@@ -37,7 +37,8 @@ export class CopierEngine {
   async copyTrade(
     tradeRequest: TradeRequest,
     signal: TradeSignal,
-    strategyId: string
+    strategyId: string,
+    opts?: { excludeAccountIds?: string[] }
   ): Promise<{ success: boolean; results: CopierResult[] }> {
     copierLogger.info('Starting trade copy', {
       tradeRequestId: tradeRequest.id,
@@ -45,9 +46,16 @@ export class CopierEngine {
       symbol: signal.symbol,
       action: signal.action,
     });
-    
+
     // Load active copier mappings
-    const mappings = await this.loadMappings(strategyId);
+    let mappings = await this.loadMappings(strategyId);
+
+    // Accounts already handled by a specialized path (e.g. GB LIVE bracket engine)
+    // must not also receive a plain market order here.
+    if (opts?.excludeAccountIds?.length) {
+      const exclude = new Set(opts.excludeAccountIds);
+      mappings = mappings.filter((m) => !exclude.has(m.account_id));
+    }
     
     if (mappings.length === 0) {
       copierLogger.warn('No active copier mappings found', { strategyId });

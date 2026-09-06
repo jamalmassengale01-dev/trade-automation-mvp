@@ -15,6 +15,7 @@ import { AlertReceived, TradingViewAlert, TradeSignal, TradeRequest } from '../t
 import { query, withTransaction } from '../db';
 import { riskEngine } from '../risk/engine';
 import { copierEngine } from '../copier/engine';
+import { isGbLiveAlert, executeGbLiveAlert } from './gbLiveExecutor';
 import logger from '../utils/logger';
 import {
   createChildContext,
@@ -144,14 +145,43 @@ export async function processAlertJob(job: Job<AlertJobData>): Promise<void> {
       return;
     }
 
-    // 6. Process each account with individual locking and checks
+    // 5b. GB LIVE path: accounts with a prop-firm preset are executed by the
+    //     bracket engine (ladder / DLL / session / OCO). Everything else falls
+    //     through to the generic copier below.
     const results: Array<{
       accountId: string;
       success: boolean;
       error?: string;
     }> = [];
+    let genericMappings = mappings;
 
-    for (const mapping of mappings) {
+    if (isGbLiveAlert(payload)) {
+      const gb = await executeGbLiveAlert({
+        alertRecordId: alertId,
+        strategyId,
+        alert: payload,
+        tradeRequestId: tradeRequest.id,
+        mappings,
+        logContext,
+      });
+      const handled = new Set(gb.handledAccountIds);
+      genericMappings = mappings.filter((m) => !handled.has(m.accountId));
+      for (const r of gb.results) {
+        if (r.status !== 'skipped') {
+          results.push({ accountId: r.accountId, success: r.status === 'queued' || r.status === 'closed', error: r.reason });
+        }
+      }
+      processorLogger.info('GB LIVE routing', {
+        alertId,
+        gbAccounts: gb.handledAccountIds.length,
+        genericAccounts: genericMappings.length,
+        queued: gb.results.filter((r) => r.status === 'queued').length,
+        rejected: gb.results.filter((r) => r.status === 'rejected').length,
+      });
+    }
+
+    // 6. Process each remaining account with individual locking and checks
+    for (const mapping of genericMappings) {
       try {
         const accountResult = await processAccountWithSafety({
           tradeRequest,
@@ -183,9 +213,12 @@ export async function processAlertJob(job: Job<AlertJobData>): Promise<void> {
 
     // 7. Update trade request status
     const successCount = results.filter((r) => r.success).length;
-    if (successCount > 0) {
+    const genericSuccess = results.some((r) => r.success && genericMappings.some((m) => m.accountId === r.accountId));
+    if (genericSuccess) {
       try {
-        await copierEngine.copyTrade(tradeRequest, signal, strategyId);
+        await copierEngine.copyTrade(tradeRequest, signal, strategyId, {
+          excludeAccountIds: mappings.filter((m) => !genericMappings.includes(m)).map((m) => m.accountId),
+        });
       } catch (copyErr) {
         processorLogger.error('copierEngine.copyTrade failed', {
           alertId,

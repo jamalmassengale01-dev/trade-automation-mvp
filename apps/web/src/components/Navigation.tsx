@@ -8,6 +8,7 @@ import { LiveIndicator } from './LiveIndicator';
 
 const navItems = [
   { href: '/', label: 'Dashboard', icon: '📊' },
+  { href: '/fleet', label: 'Fleet', icon: '🚀' },
   { href: '/strategies', label: 'Strategies', icon: '⚡' },
   { href: '/accounts', label: 'Accounts', icon: '💳' },
   { href: '/alerts', label: 'Alerts', icon: '🔔' },

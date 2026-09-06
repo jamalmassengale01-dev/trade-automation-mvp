@@ -57,6 +57,22 @@ export const orderQueue = new Queue('orders', {
   },
 });
 
+/**
+ * GB Trade Queue
+ *
+ * One job per gb_trades row: places entries, waits for fills, places brackets.
+ * attempts: 1 — an entry placement must never be auto-retried (double-entry risk);
+ * failures land in the DLQ for review.
+ */
+export const gbTradeQueue = new Queue('gb-trades', {
+  connection: redisOptions,
+  defaultJobOptions: {
+    attempts: 1,
+    removeOnComplete: { age: 24 * 3600, count: 1000 },
+    removeOnFail: { age: 7 * 24 * 3600 },
+  },
+});
+
 // Log queue events
 alertQueue.on('waiting', (jobId) => {
   queueLogger.debug('Alert job waiting', { jobId });
@@ -144,5 +160,6 @@ export async function cleanQueues(): Promise<void> {
 export async function closeQueues(): Promise<void> {
   await alertQueue.close();
   await orderQueue.close();
+  await gbTradeQueue.close();
   queueLogger.info('Queues closed');
 }

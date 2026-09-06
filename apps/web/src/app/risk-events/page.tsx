@@ -31,7 +31,7 @@ export default function RiskEventsPage() {
       setLoading(true);
       const response = await api.getRiskEvents();
       if (response.success) {
-        setEvents(response.data as RiskEvent[]);
+        setEvents(response.data.items as RiskEvent[]);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load risk events');

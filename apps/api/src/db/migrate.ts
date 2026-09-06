@@ -35,9 +35,11 @@ async function migrate() {
   migrationLogger.info('Starting database migration...', { force: FORCE });
   const schemaPath = path.join(__dirname, 'schema.sql');
   const hardeningPath = path.join(__dirname, 'schema_hardening.sql');
+  const gbLivePath = path.join(__dirname, 'schema_gblive.sql');
   try {
     await runSqlFile(schemaPath, 'schema.sql');
     await runSqlFile(hardeningPath, 'schema_hardening.sql');
+    await runSqlFile(gbLivePath, 'schema_gblive.sql');
     migrationLogger.info('Database migration completed successfully');
   } catch (error) {
     migrationLogger.error('Migration failed', { error: error instanceof Error ? error.message : String(error) });

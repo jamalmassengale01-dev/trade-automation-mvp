@@ -33,7 +33,7 @@ export default function OrdersPage() {
       setLoading(true);
       const response = await api.getOrders();
       if (response.success) {
-        setOrders(response.data as Order[]);
+        setOrders(response.data.items as Order[]);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load orders');

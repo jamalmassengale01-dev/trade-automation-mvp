@@ -33,7 +33,7 @@ export default function AlertsPage() {
       setLoading(true);
       const response = await api.getAlerts();
       if (response.success) {
-        setAlerts(response.data as Alert[]);
+        setAlerts(response.data.items as Alert[]);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load alerts');

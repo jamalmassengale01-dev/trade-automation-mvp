@@ -13,6 +13,7 @@
 import { Request, Response } from 'express';
 import crypto from 'crypto';
 import { validateAlert } from './schema';
+import { normalizeIncomingAlert } from './gbLiveSchema';
 import { AlertReceived, TradingViewAlert } from '../types';
 import { query } from '../db';
 import { alertQueue } from '../jobs/queues';
@@ -82,8 +83,11 @@ export async function handleTradingViewWebhook(
       return;
     }
 
-    // 2. Validate payload schema
-    const validation = validateAlert(req.body);
+    // 2. Normalize (GB LIVE / PMT format → internal) and validate payload schema
+    const normalized = normalizeIncomingAlert(req.body);
+    const validation = normalized.success
+      ? validateAlert(normalized.alert)
+      : { success: false as const, error: normalized.error };
     if (!validation.success) {
       webhookLogger.warn('Invalid webhook payload', {
         requestId,
@@ -459,8 +463,11 @@ export async function handleTradingViewWebhookByStrategy(
       return;
     }
 
-    // 3. Validate payload schema
-    const validation = validateAlert(req.body);
+    // 3. Normalize (GB LIVE / PMT format → internal) and validate payload schema
+    const normalized = normalizeIncomingAlert(req.body);
+    const validation = normalized.success
+      ? validateAlert(normalized.alert)
+      : { success: false as const, error: normalized.error };
     if (!validation.success) {
       await persistInvalidAlert({
         requestId,

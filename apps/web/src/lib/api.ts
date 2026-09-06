@@ -90,6 +90,18 @@ export const api = {
     apiClient<{ success: boolean; data: CopierMapping }>(`/api/strategies/${strategyId}/copier-mappings/${mappingId}`, { method: 'PATCH', body }),
   deleteStrategyMapping: (strategyId: string, mappingId: string) =>
     apiClient<{ success: boolean; message: string }>(`/api/strategies/${strategyId}/copier-mappings/${mappingId}`, { method: 'DELETE' }),
+
+  // GB LIVE / LaunchPad
+  getGbAccounts: () => apiClient<{ success: boolean; data: GbAccount[] }>('/api/gb/accounts'),
+  getGbPresets: () => apiClient<{ success: boolean; data: GbPreset[] }>('/api/gb/presets'),
+  getGbTrades: (page = 1, pageSize = 20) =>
+    apiClient<{ success: boolean; data: { items: GbTrade[]; total: number; page: number; pageSize: number; totalPages: number } }>(`/api/gb/trades?page=${page}&pageSize=${pageSize}`),
+  getGbAccountTrades: (accountId: string, page = 1, pageSize = 20) =>
+    apiClient<{ success: boolean; data: { items: GbTrade[]; total: number; page: number; pageSize: number; totalPages: number } }>(`/api/gb/accounts/${accountId}/trades?page=${page}&pageSize=${pageSize}`),
+  assignPreset: (accountId: string, presetId: string | null) =>
+    apiClient<{ success: boolean; data: unknown }>(`/api/accounts/${accountId}`, { method: 'PATCH', body: { preset_id: presetId } }),
+  simulateGbExit: (tradeId: string, outcome: 'W' | 'W~' | 'L' | 'BE') =>
+    apiClient<{ success: boolean; data: GbTrade }>(`/api/gb/trades/${tradeId}/simulate-exit`, { method: 'POST', body: { outcome } }),
 };
 
 // ============================================
@@ -132,6 +144,104 @@ export interface CopierMapping {
   long_only: boolean;
   short_only: boolean;
   allowed_symbols: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+// ============================================
+// GB LIVE / LAUNCHPAD TYPES
+// ============================================
+
+export interface GbPreset {
+  id: string;
+  name: string;
+  prop_firm: string;
+  phase: 'eval' | 'funded';
+  start_balance: string | number;
+  target_profit: string | number | null;
+  max_drawdown: string | number;
+  daily_loss_cap: string | number;
+  base_risk: string | number;
+  max_contracts: number;
+  dd_mode: string;
+  tp1_r: string | number;
+  tp2_r: string | number;
+  cap_step: number;
+  max_trades_day: number;
+  profit_split: string | number;
+  notes?: string;
+}
+
+export interface GbAccountPreset {
+  id: string | null;
+  name: string | null;
+  propFirm: string | null;
+  phase: string | null;
+  startBalance: number;
+  targetProfit: number | null;
+  maxDrawdown: number;
+  dailyLossCap: number;
+  baseRisk: number;
+  maxContracts: number;
+  capStep: number;
+  maxTradesDay: number;
+}
+
+export interface GbLastTrade {
+  id: string;
+  symbol: string;
+  direction: 'long' | 'short';
+  outcome: string | null;
+  pnl: number | null;
+  exitTime: string | null;
+  createdAt: string;
+}
+
+export interface GbAccount {
+  id: string;
+  name: string;
+  brokerType: string;
+  isActive: boolean;
+  isDisabled: boolean;
+  phase: string;
+  preset: GbAccountPreset;
+  ladderStep: number;
+  dayRealizedPnl: number;
+  dllRoom: number;
+  lastDayKey: string | null;
+  tradesToday: number;
+  maxTradesDay: number;
+  sessions: { london: boolean; nyam: boolean; nypm: boolean };
+  lastTrade: GbLastTrade | null;
+}
+
+export interface GbTrade {
+  id: string;
+  broker_account_id: string;
+  account_name?: string;
+  day_key: string;
+  session: 'london' | 'nyam' | 'nypm' | null;
+  direction: 'long' | 'short';
+  symbol: string;
+  root_symbol: string;
+  ref_price: string | number | null;
+  entry_price: string | number | null;
+  stop_pts: string | number;
+  sl_price: string | number | null;
+  tp1_price: string | number | null;
+  tp2_price: string | number | null;
+  be_price: string | number | null;
+  contracts: number;
+  g1_qty: number;
+  g2_qty: number;
+  step_at_entry: number;
+  step_risk: string | number;
+  state: 'entry_pending' | 'open' | 'tp1_hit' | 'closing' | 'closed' | 'failed';
+  outcome: 'W' | 'W~' | 'L' | 'BE' | 'L!' | null;
+  pnl: string | number | null;
+  error_message: string | null;
+  entry_time: string | null;
+  exit_time: string | null;
   created_at: string;
   updated_at: string;
 }

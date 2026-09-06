@@ -13,6 +13,7 @@
 import { Worker, Job } from 'bullmq';
 import { processAlertJob } from '../processor/alertProcessorHardened';
 import { processOrderJob } from '../processor/orderProcessorHardened';
+import { bracketManager } from '../strategy/bracketManager';
 import { addToDLQ } from '../services/deadLetter';
 import { createHeartbeatSender } from '../services/heartbeat';
 import config from '../config';
@@ -63,6 +64,44 @@ export const orderWorker = new Worker(
     },
   }
 );
+
+// ============================================
+// GB TRADE WORKER (bracket execution)
+// ============================================
+
+export const gbTradeWorker = new Worker(
+  'gb-trades',
+  async (job: Job<{ tradeId: string }>) => {
+    workerLogger.info('GB trade job starting', { jobId: job.id, tradeId: job.data.tradeId });
+    await bracketManager.execute(job.data.tradeId);
+  },
+  {
+    connection: redisOptions,
+    concurrency: 20, // one signal fans out to many accounts at once
+  }
+);
+
+gbTradeWorker.on('ready', () => workerLogger.info('GB trade worker ready'));
+gbTradeWorker.on('failed', async (job, err) => {
+  workerLogger.error('GB trade job failed', { jobId: job?.id, tradeId: job?.data?.tradeId, error: err.message, stack: err.stack });
+  if (job) {
+    try {
+      await addToDLQ({
+        queueName: 'gb-trades',
+        jobId: job.id || 'unknown',
+        jobName: job.name,
+        payload: job.data as unknown as Record<string, unknown>,
+        errorMessage: err.message,
+        errorStack: err.stack,
+        attemptCount: job.attemptsMade,
+        retryable: false, // never auto-retry entry placement
+      });
+    } catch (dlqError) {
+      workerLogger.error('Failed to add GB job to DLQ', { jobId: job.id, error: String(dlqError) });
+    }
+  }
+});
+gbTradeWorker.on('error', (error) => workerLogger.error('GB trade worker error', { error: error.message }));
 
 // ============================================
 // EVENT HANDLERS
@@ -228,6 +267,8 @@ export async function closeWorkers(): Promise<void> {
   // Close workers
   await alertWorker.close();
   await orderWorker.close();
+  await gbTradeWorker.close();
+  bracketManager.shutdown();
 
   workerLogger.info('Workers closed');
 }

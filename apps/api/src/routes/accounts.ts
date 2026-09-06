@@ -120,6 +120,71 @@ router.post('/', async (req: Request, res: Response) => {
 });
 
 /**
+ * PATCH /api/accounts/:id
+ * Update account fields — currently: name, settings, and preset_id (GB LIVE prop-firm preset).
+ * Assigning a preset does not affect other accounts on the strategy.
+ */
+router.patch('/:id', async (req: Request, res: Response) => {
+  try {
+    const { name, settings, preset_id } = req.body as {
+      name?: string;
+      settings?: Record<string, unknown>;
+      preset_id?: string | null;
+    };
+
+    if (preset_id !== undefined && preset_id !== null) {
+      const preset = await query('SELECT id, prop_firm FROM presets WHERE id = $1', [preset_id]);
+      if (preset.rowCount === 0) {
+        res.status(400).json({ success: false, error: `Unknown preset_id: ${preset_id}` });
+        return;
+      }
+    }
+
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    let i = 1;
+    if (name !== undefined) { sets.push(`name = $${i++}`); params.push(name); }
+    if (settings !== undefined) { sets.push(`settings = $${i++}`); params.push(JSON.stringify(settings)); }
+    if (preset_id !== undefined) {
+      sets.push(`preset_id = $${i++}`);
+      params.push(preset_id);
+      // Assigning a preset resets this account's own ladder/day state; it never touches other accounts.
+      sets.push(`ladder_step = 1`, `day_realized_pnl = 0`, `trades_today = 0`, `london_used = false`, `nyam_used = false`, `nypm_used = false`);
+    }
+
+    if (sets.length === 0) {
+      res.status(400).json({ success: false, error: 'No updatable fields provided' });
+      return;
+    }
+
+    params.push(req.params.id);
+    const result = await query(
+      `UPDATE broker_accounts SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${i} RETURNING *`,
+      params
+    );
+
+    if (result.rowCount === 0) {
+      res.status(404).json({ success: false, error: 'Account not found' });
+      return;
+    }
+
+    await query(
+      `INSERT INTO audit_logs (action, entity_type, entity_id, new_value, created_at) VALUES ($1, $2, $3, $4, NOW())`,
+      ['update', 'broker_account', req.params.id, JSON.stringify({ name, preset_id })]
+    );
+
+    routeLogger.info('Account updated', { accountId: req.params.id, preset_id });
+    res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    routeLogger.error('Failed to update account', {
+      accountId: req.params.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    res.status(500).json({ success: false, error: 'Failed to update account' });
+  }
+});
+
+/**
  * DELETE /api/accounts/:id
  * Delete a broker account
  */

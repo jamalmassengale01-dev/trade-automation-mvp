@@ -160,7 +160,7 @@ export function FillRateChart({
             tickFormatter={(value) => `${value}%`}
           />
           <Tooltip
-            formatter={(value: number) => [`${value}%`, 'Fill Rate']}
+            formatter={((value: number | string) => [`${value}%`, 'Fill Rate']) as never}
             contentStyle={{
               backgroundColor: 'var(--chart-tooltip-bg)',
               border: '1px solid var(--chart-tooltip-border)',
@@ -229,10 +229,10 @@ export function AccountPerformanceChart({
             width={100}
           />
           <Tooltip
-            formatter={(value: number, name: string) => {
+            formatter={((value: number | string, name: string) => {
               if (name === 'profit') return [`$${value}`, 'P&L'];
               return [value, name];
-            }}
+            }) as never}
             contentStyle={{
               backgroundColor: 'var(--chart-tooltip-bg)',
               border: '1px solid var(--chart-tooltip-border)',

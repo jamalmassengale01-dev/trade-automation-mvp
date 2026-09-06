@@ -227,7 +227,7 @@ export default function DashboardPage() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-bold text-terminal-text">Dashboard</h1>
-          <LiveIndicator isConnected={true} lastUpdate={lastUpdate} />
+          <LiveIndicator isConnected={true} lastUpdate={lastUpdate ?? undefined} />
         </div>
         <button
           onClick={() => loadChartData()}

@@ -162,17 +162,17 @@ export function ExecutionFeed() {
 
                 {/* Details */}
                 <span className="text-terminal-muted flex-1 truncate">
-                  {event.data.symbol && (
+                  {Boolean(event.data.symbol) && (
                     <span className="text-terminal-text font-semibold mr-1">{String(event.data.symbol)}</span>
                   )}
-                  {event.data.action && (
+                  {Boolean(event.data.action) && (
                     <span className={`mr-1 ${buy ? 'text-terminal-buy' : sell ? 'text-terminal-sell' : ''}`}>
                       {String(event.data.action).toUpperCase()}
                     </span>
                   )}
-                  {event.data.contracts && <span className="mr-1">{String(event.data.contracts)}ct</span>}
-                  {event.data.message && <span className="italic">{String(event.data.message)}</span>}
-                  {event.data.status && <span className="ml-1 text-terminal-muted">[{String(event.data.status)}]</span>}
+                  {Boolean(event.data.contracts) && <span className="mr-1">{String(event.data.contracts)}ct</span>}
+                  {Boolean(event.data.message) && <span className="italic">{String(event.data.message)}</span>}
+                  {Boolean(event.data.status) && <span className="ml-1 text-terminal-muted">[{String(event.data.status)}]</span>}
                 </span>
               </li>
             );
