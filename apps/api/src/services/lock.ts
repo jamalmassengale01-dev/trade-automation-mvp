@@ -115,9 +115,13 @@ export async function withLock<T>(
     }
 
     try {
-      // Set statement timeout if specified
+      // Set statement timeout if specified.
+      // PostgreSQL's SET/SET LOCAL cannot take a bound parameter ($1) — the value
+      // must be interpolated into the statement text. Safe here: timeoutMs is
+      // always an internally-controlled integer, never user input.
       if (timeoutMs) {
-        await client.query('SET LOCAL statement_timeout = $1', [timeoutMs]);
+        const safeTimeoutMs = Math.max(0, Math.floor(timeoutMs));
+        await client.query(`SET LOCAL statement_timeout = ${safeTimeoutMs}`);
       }
 
       return await fn(client);
@@ -161,9 +165,8 @@ export async function withMultiLock<T>(
 
     try {
       if (options.timeoutMs) {
-        await client.query('SET LOCAL statement_timeout = $1', [
-          options.timeoutMs,
-        ]);
+        const safeTimeoutMs = Math.max(0, Math.floor(options.timeoutMs));
+        await client.query(`SET LOCAL statement_timeout = ${safeTimeoutMs}`);
       }
 
       return await fn(client);
