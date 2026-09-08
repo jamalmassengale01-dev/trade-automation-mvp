@@ -2,8 +2,13 @@ import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { query } from '../db';
 import logger from '../utils/logger';
+import { ownsRow, scopeClause } from '../middleware/ownership';
 
 const router = Router();
+
+// Covers every :id and :strategyId route in this router.
+router.param('id', ownsRow('strategies'));
+router.param('strategyId', ownsRow('strategies'));
 const routeLogger = logger.child({ context: 'StrategiesRoute' });
 
 const WEBHOOK_BASE_URL = process.env.WEBHOOK_BASE_URL || 'http://localhost:3001';
@@ -20,8 +25,9 @@ function webhookUrl(strategyId: string, webhookSecret?: string): string {
 }
 
 // GET /api/strategies
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
+    const scope = scopeClause(req, 's', 1);
     const result = await query(`
       SELECT
         s.*,
@@ -30,9 +36,10 @@ router.get('/', async (_req: Request, res: Response) => {
       FROM strategies s
       LEFT JOIN risk_rules rr ON rr.strategy_id = s.id
       LEFT JOIN copier_mappings cm ON cm.strategy_id = s.id
+      WHERE ${scope.clause}
       GROUP BY s.id
       ORDER BY s.created_at DESC
-    `);
+    `, scope.params);
 
     const strategies = result.rows.map((row) => ({
       ...row,

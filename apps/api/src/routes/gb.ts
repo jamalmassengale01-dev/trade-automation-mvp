@@ -4,11 +4,19 @@ import { dllHeadroom } from '../strategy/gate';
 import { bracketManager } from '../strategy/bracketManager';
 import { calculatePropFirm, toDerivedFrom, PropFirmInputs } from '../strategy/propFirmMath';
 import { reconcileAllAccounts, reconcileAccountRules } from '../services/ruleReconciliation';
+import { requireAdmin } from '../middleware/auth';
+import { ownsRow, scopeClause } from '../middleware/ownership';
 import config from '../config';
 import logger from '../utils/logger';
 
 const router = Router();
 const routeLogger = logger.child({ context: 'GbRoute' });
+
+// ':id' is overloaded in this router — it names a preset (text key), a broker
+// account (uuid), and a gb_trade (uuid) on different paths. A single
+// router.param guard would therefore check the wrong table, so account routes
+// use ':accountId' and only that param gets an ownership guard.
+router.param('accountId', ownsRow('broker_accounts'));
 
 /**
  * GET /api/gb/presets
@@ -88,7 +96,7 @@ function validatePresetInput(body: PresetInput, opts: { requireCore: boolean }):
  *
  * Declared BEFORE /presets/:id so 'calculate' is never read as a preset id.
  */
-router.post('/presets/calculate', async (req: Request, res: Response) => {
+router.post('/presets/calculate', requireAdmin, async (req: Request, res: Response) => {
   try {
     const result = calculatePropFirm(req.body as PropFirmInputs);
     res.json({
@@ -125,7 +133,7 @@ router.post('/presets/calculate', async (req: Request, res: Response) => {
  * strategy variant or account-size config without a code change — every
  * ladder/DLL/session/sniper parameter used by the executor lives here.
  */
-router.post('/presets', async (req: Request, res: Response) => {
+router.post('/presets', requireAdmin, async (req: Request, res: Response) => {
   const body = req.body as PresetInput;
   const err = validatePresetInput(body, { requireCore: true });
   if (err) {
@@ -176,7 +184,7 @@ router.get('/presets/:id', async (req: Request, res: Response) => {
  * every account assigned to it — open trades are unaffected (their tp1_r/
  * tp2_r were captured onto the gb_trades row at entry time).
  */
-router.patch('/presets/:id', async (req: Request, res: Response) => {
+router.patch('/presets/:id', requireAdmin, async (req: Request, res: Response) => {
   const body = req.body as PresetInput;
   const { id: _ignored, ...rest } = body; // id is immutable — the preset's key
   const err = validatePresetInput(rest, { requireCore: false });
@@ -211,7 +219,7 @@ router.patch('/presets/:id', async (req: Request, res: Response) => {
  * Refuses if any broker account is still assigned to it — unassign those
  * accounts first (PATCH /api/accounts/:id { preset_id: null }).
  */
-router.delete('/presets/:id', async (req: Request, res: Response) => {
+router.delete('/presets/:id', requireAdmin, async (req: Request, res: Response) => {
   try {
     const inUse = await query<{ count: string }>('SELECT COUNT(*) FROM broker_accounts WHERE preset_id = $1', [req.params.id]);
     const count = parseInt(inUse.rows[0].count, 10);
@@ -237,8 +245,9 @@ router.delete('/presets/:id', async (req: Request, res: Response) => {
  * Fleet view: every account running a GB LIVE preset, with ladder state,
  * DLL headroom, today's session usage, and its most recent trade.
  */
-router.get('/accounts', async (_req: Request, res: Response) => {
+router.get('/accounts', async (req: Request, res: Response) => {
   try {
+    const scope = scopeClause(req, 'ba', 1);
     const result = await query(`
       SELECT
         ba.id, ba.name, ba.broker_type, ba.is_active, ba.is_disabled,
@@ -258,8 +267,9 @@ router.get('/accounts', async (_req: Request, res: Response) => {
         SELECT * FROM gb_trades gt WHERE gt.broker_account_id = ba.id
         ORDER BY gt.created_at DESC LIMIT 1
       ) lt ON true
+      WHERE ${scope.clause}
       ORDER BY ba.created_at DESC
-    `);
+    `, scope.params);
 
     const data = result.rows.map((r: any) => {
       const targetProfit = r.target_profit !== null ? Number(r.target_profit) : null;
@@ -321,10 +331,10 @@ router.get('/accounts', async (_req: Request, res: Response) => {
 });
 
 /**
- * GET /api/gb/accounts/:id/trades
+ * GET /api/gb/accounts/:accountId/trades
  * Trade history for one account, newest first.
  */
-router.get('/accounts/:id/trades', async (req: Request, res: Response) => {
+router.get('/accounts/:accountId/trades', async (req: Request, res: Response) => {
   try {
     const page = Math.max(1, parseInt(String(req.query.page ?? '1'), 10) || 1);
     const pageSize = Math.min(100, Math.max(1, parseInt(String(req.query.pageSize ?? '20'), 10) || 20));
@@ -333,9 +343,9 @@ router.get('/accounts/:id/trades', async (req: Request, res: Response) => {
     const [rows, count] = await Promise.all([
       query(
         `SELECT * FROM gb_trades WHERE broker_account_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
-        [req.params.id, pageSize, offset]
+        [req.params.accountId, pageSize, offset]
       ),
-      query<{ count: string }>(`SELECT COUNT(*) FROM gb_trades WHERE broker_account_id = $1`, [req.params.id]),
+      query<{ count: string }>(`SELECT COUNT(*) FROM gb_trades WHERE broker_account_id = $1`, [req.params.accountId]),
     ]);
 
     const total = parseInt(count.rows[0].count, 10);
@@ -345,7 +355,7 @@ router.get('/accounts/:id/trades', async (req: Request, res: Response) => {
     });
   } catch (error) {
     routeLogger.error('Failed to load account trades', {
-      accountId: req.params.id,
+      accountId: req.params.accountId,
       error: error instanceof Error ? error.message : String(error),
     });
     res.status(500).json({ success: false, error: 'Failed to load account trades' });
@@ -358,6 +368,7 @@ router.get('/accounts/:id/trades', async (req: Request, res: Response) => {
  */
 router.get('/trades', async (req: Request, res: Response) => {
   try {
+    const scope = scopeClause(req, 'ba', 1);
     const page = Math.max(1, parseInt(String(req.query.page ?? '1'), 10) || 1);
     const pageSize = Math.min(100, Math.max(1, parseInt(String(req.query.pageSize ?? '20'), 10) || 20));
     const offset = (page - 1) * pageSize;
@@ -366,10 +377,16 @@ router.get('/trades', async (req: Request, res: Response) => {
       query(
         `SELECT gt.*, ba.name AS account_name FROM gb_trades gt
          JOIN broker_accounts ba ON ba.id = gt.broker_account_id
-         ORDER BY gt.created_at DESC LIMIT $1 OFFSET $2`,
-        [pageSize, offset]
+         WHERE ${scope.clause}
+         ORDER BY gt.created_at DESC LIMIT $${scope.params.length + 1} OFFSET $${scope.params.length + 2}`,
+        [...scope.params, pageSize, offset]
       ),
-      query<{ count: string }>(`SELECT COUNT(*) FROM gb_trades`),
+      query<{ count: string }>(
+        `SELECT COUNT(*) FROM gb_trades gt
+         JOIN broker_accounts ba ON ba.id = gt.broker_account_id
+         WHERE ${scope.clause}`,
+        scope.params
+      ),
     ]);
 
     const total = parseInt(count.rows[0].count, 10);
@@ -416,7 +433,7 @@ router.post('/trades/:id/simulate-exit', async (req: Request, res: Response) => 
  * readable from the broker API, so this stamp is the only thing standing
  * between the fleet and silently trading last quarter's rules.
  */
-router.post('/presets/:id/verify', async (req: Request, res: Response) => {
+router.post('/presets/:id/verify', requireAdmin, async (req: Request, res: Response) => {
   try {
     const { verified_by, source_url, stale_after_days } = req.body ?? {};
     if (stale_after_days !== undefined && (typeof stale_after_days !== 'number' || stale_after_days <= 0)) {
@@ -454,7 +471,7 @@ router.post('/presets/:id/verify', async (req: Request, res: Response) => {
  * POST /api/gb/reconcile
  * Run rule reconciliation across every active account with a preset.
  */
-router.post('/reconcile', async (_req: Request, res: Response) => {
+router.post('/reconcile', requireAdmin, async (_req: Request, res: Response) => {
   try {
     const results = await reconcileAllAccounts();
     res.json({
@@ -474,15 +491,15 @@ router.post('/reconcile', async (_req: Request, res: Response) => {
 });
 
 /**
- * POST /api/gb/accounts/:id/reconcile
+ * POST /api/gb/accounts/:accountId/reconcile
  * Run rule reconciliation for one account.
  */
-router.post('/accounts/:id/reconcile', async (req: Request, res: Response) => {
+router.post('/accounts/:accountId/reconcile', async (req: Request, res: Response) => {
   try {
-    const result = await reconcileAccountRules(req.params.id);
+    const result = await reconcileAccountRules(req.params.accountId);
     res.json({ success: true, data: result });
   } catch (error) {
-    routeLogger.error('Reconciliation failed', { accountId: req.params.id, error: error instanceof Error ? error.message : String(error) });
+    routeLogger.error('Reconciliation failed', { accountId: req.params.accountId, error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({ success: false, error: 'Reconciliation failed' });
   }
 });
@@ -491,7 +508,7 @@ router.post('/accounts/:id/reconcile', async (req: Request, res: Response) => {
  * GET /api/gb/reconciliation
  * Newest rule check per account, for the fleet health view.
  */
-router.get('/reconciliation', async (_req: Request, res: Response) => {
+router.get('/reconciliation', requireAdmin, async (_req: Request, res: Response) => {
   try {
     const result = await query(
       `SELECT DISTINCT ON (c.broker_account_id)

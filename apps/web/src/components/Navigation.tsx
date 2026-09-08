@@ -5,17 +5,20 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useTheme } from './ThemeProvider';
 import { LiveIndicator } from './LiveIndicator';
+import { useAuth } from './AuthProvider';
 
+// adminOnly links are also enforced server-side; hiding them here just keeps
+// customers from clicking into a guaranteed 403.
 const navItems = [
   { href: '/', label: 'Dashboard', icon: '📊' },
   { href: '/fleet', label: 'Fleet', icon: '🚀' },
-  { href: '/presets', label: 'Presets', icon: '🎛️' },
-  { href: '/calculator', label: 'Calculator', icon: '🧮' },
+  { href: '/presets', label: 'Presets', icon: '🎛️', adminOnly: true },
+  { href: '/calculator', label: 'Calculator', icon: '🧮', adminOnly: true },
   { href: '/strategies', label: 'Strategies', icon: '⚡' },
   { href: '/accounts', label: 'Accounts', icon: '💳' },
   { href: '/alerts', label: 'Alerts', icon: '🔔' },
   { href: '/orders', label: 'Orders', icon: '📋' },
-  { href: '/health', label: 'Account Health', icon: '🩺' },
+  { href: '/health', label: 'Account Health', icon: '🩺', adminOnly: true },
   { href: '/risk-events', label: 'Risk Events', icon: '⚠️' },
   { href: '/settings', label: 'Settings', icon: '⚙️' },
 ];
@@ -23,7 +26,9 @@ const navItems = [
 export function Navigation() {
   const pathname = usePathname();
   const { theme, toggleTheme } = useTheme();
+  const { user, isAdmin, logout } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const visibleItems = navItems.filter((i) => !i.adminOnly || isAdmin);
 
   const navContent = (
     <>
@@ -36,7 +41,7 @@ export function Navigation() {
       </div>
 
       <div className="flex-1 py-4 overflow-y-auto">
-        {navItems.map((item) => {
+        {visibleItems.map((item) => {
           const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(`${item.href}/`));
           return (
             <Link
@@ -67,8 +72,27 @@ export function Navigation() {
             <><span className="mr-2">☀️</span> Light Mode</>
           )}
         </button>
+        {user && (
+          <div className="text-xs">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-terminal-text font-medium truncate">{user.name}</p>
+                <p className="text-terminal-muted truncate">
+                  {user.email}
+                  {isAdmin && <span className="ml-1 text-terminal-buy">· admin</span>}
+                </p>
+              </div>
+              <button
+                onClick={() => logout()}
+                className="shrink-0 px-2 py-1 rounded text-terminal-muted hover:text-terminal-text transition-colors"
+                title="Sign out"
+              >
+                Sign out
+              </button>
+            </div>
+          </div>
+        )}
         <div className="text-xs text-terminal-muted">
-          <p>Environment: <span className="font-medium text-terminal-text">Development</span></p>
           <p className="mt-1">Version: 1.0.0-hardened</p>
         </div>
       </div>

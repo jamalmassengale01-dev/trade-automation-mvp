@@ -8,7 +8,9 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
     "test": "vitest",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "create-admin": "tsx src/db/createUser.ts --role admin",
+    "create-user": "tsx src/db/createUser.ts --role customer"
   },
   "dependencies": {
     "@trade-automation/shared-types": "^1.0.0",

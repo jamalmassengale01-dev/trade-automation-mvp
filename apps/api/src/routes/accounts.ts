@@ -3,9 +3,13 @@ import { BrokerAccount } from '../types';
 import { query } from '../db';
 import { getBrokerAdapter } from '../brokers';
 import logger from '../utils/logger';
+import { ownsRow, scopeClause } from '../middleware/ownership';
 
 const router = Router();
 const routeLogger = logger.child({ context: 'AccountsRoute' });
+
+// Covers every :id route below — get, patch, delete, flatten, disable, enable.
+router.param('id', ownsRow('broker_accounts'));
 
 /**
  * GET /api/accounts
@@ -13,12 +17,15 @@ const routeLogger = logger.child({ context: 'AccountsRoute' });
  */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const result = await query<BrokerAccount>(`
-      SELECT id, user_id, name, broker_type, is_active, is_disabled, 
-             settings, created_at, updated_at
-      FROM broker_accounts
-      ORDER BY created_at DESC
-    `);
+    const scope = scopeClause(req, 'broker_accounts', 1);
+    const result = await query<BrokerAccount>(
+      `SELECT id, user_id, name, broker_type, is_active, is_disabled,
+              settings, created_at, updated_at
+       FROM broker_accounts
+       WHERE ${scope.clause}
+       ORDER BY created_at DESC`,
+      scope.params
+    );
     
     res.json({
       success: true,

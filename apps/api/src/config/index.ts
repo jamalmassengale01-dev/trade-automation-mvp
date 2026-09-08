@@ -37,6 +37,12 @@ export const config = {
   isDev: getEnv('NODE_ENV', 'development') === 'development',
   isProd: getEnv('NODE_ENV', 'development') === 'production',
   server: { port: getIntEnv('PORT', 3001), host: getEnv('API_HOST', '0.0.0.0') },
+  // Origins allowed to send credentialed (cookie-bearing) requests. Must name
+  // each origin explicitly — the CORS spec forbids '*' with credentials.
+  corsOrigins: getEnv('CORS_ORIGINS', 'http://localhost:3000')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean),
   database: { url: getEnv('DATABASE_URL') },
   redis: { url: getEnv('REDIS_URL', 'redis://localhost:6379') },
   webhook: { secret: webhookSecret },

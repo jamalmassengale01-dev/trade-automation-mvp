@@ -34,6 +34,9 @@ import systemRoutes from './routes/system';
 import strategiesRoutes from './routes/strategies';
 import gbRoutes from './routes/gb';
 import { handleTradingViewWebhook, handleTradingViewWebhookByStrategy } from './webhook/handlerHardened';
+import authRoutes from './routes/auth';
+import { attachUser, requireAuth } from './middleware/auth';
+import { cleanupExpiredSessions } from './services/session';
 
 const app = express();
 
@@ -41,7 +44,9 @@ const app = express();
 // MIDDLEWARE
 // ============================================
 app.use(helmet());
-app.use(cors());
+// Cookies only travel cross-origin when the origin is named explicitly and
+// credentials are allowed — a wildcard origin silently drops them.
+app.use(cors({ origin: config.corsOrigins, credentials: true }));
 app.use(express.json());
 
 // Request logging with trace ID
@@ -81,14 +86,23 @@ app.get('/health', (req, res) => {
 app.post('/webhook/tradingview', handleTradingViewWebhook);
 app.post('/webhook/tradingview/:strategyId', handleTradingViewWebhookByStrategy);
 
-// API routes
-app.use('/api/accounts', accountsRoutes);
-app.use('/api/alerts', alertsRoutes);
-app.use('/api/orders', ordersRoutes);
-app.use('/api/risk-events', riskEventsRoutes);
-app.use('/api/system', systemRoutes);
-app.use('/api/strategies', strategiesRoutes);
-app.use('/api/gb', gbRoutes);
+// Resolve the session cookie for every /api request. Attaches req.user when
+// one is present; enforcement is per-route below. Mounted AFTER the webhook
+// handlers on purpose — TradingView cannot hold a session and authenticates
+// with the per-strategy secret in its URL instead.
+app.use('/api', attachUser);
+
+// Login/logout are the only unauthenticated API routes.
+app.use('/api/auth', authRoutes);
+
+// Everything else requires a session.
+app.use('/api/accounts', requireAuth, accountsRoutes);
+app.use('/api/alerts', requireAuth, alertsRoutes);
+app.use('/api/orders', requireAuth, ordersRoutes);
+app.use('/api/risk-events', requireAuth, riskEventsRoutes);
+app.use('/api/system', requireAuth, systemRoutes);
+app.use('/api/strategies', requireAuth, strategiesRoutes);
+app.use('/api/gb', requireAuth, gbRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {
@@ -225,6 +239,18 @@ function startCleanupTasks(): void {
       logger.debug('Cleaned up old DLQ entries', { count });
     } catch (error) {
       logger.error('Failed to clean up DLQ', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }, 24 * 60 * 60 * 1000);
+
+  // Drop expired sessions daily.
+  setInterval(async () => {
+    try {
+      const count = await cleanupExpiredSessions();
+      logger.debug('Cleaned up expired sessions', { count });
+    } catch (error) {
+      logger.error('Failed to clean up sessions', {
         error: error instanceof Error ? error.message : String(error),
       });
     }

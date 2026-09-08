@@ -1,8 +1,9 @@
 import type { Metadata } from 'next';
 import './globals.css';
-import { Navigation } from '@/components/Navigation';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import { ToastProvider } from '@/components/ToastProvider';
+import { AuthProvider } from '@/components/AuthProvider';
+import { AuthGate } from '@/components/AuthGate';
 
 export const metadata: Metadata = {
   title: 'Trade Automation Dashboard',
@@ -19,13 +20,11 @@ export default function RootLayout({
       <body className="min-h-screen bg-terminal-bg text-terminal-text">
         <ThemeProvider>
           <ToastProvider />
-          {/* Mobile: stacked layout (top bar + content). Desktop: sidebar + content side-by-side */}
-          <div className="flex flex-col md:flex-row h-screen overflow-hidden">
-            <Navigation />
-            <main className="flex-1 overflow-auto">
-              {children}
-            </main>
-          </div>
+          <AuthProvider>
+            {/* Renders the sign-in form until there is a session; the nav and
+                page content only mount for an authenticated user. */}
+            <AuthGate>{children}</AuthGate>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>

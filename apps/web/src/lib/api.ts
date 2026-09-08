@@ -13,19 +13,43 @@ export async function apiClient<T>(path: string, options: ApiOptions = {}): Prom
     headers: {
       'Content-Type': 'application/json',
     },
+    // The session lives in an httpOnly cookie, which the browser only attaches
+    // cross-origin when credentials are explicitly included.
+    credentials: 'include',
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-    throw new Error(error.error || `HTTP ${response.status}`);
+    const err = new Error(error.error || `HTTP ${response.status}`) as Error & { status?: number };
+    err.status = response.status;
+    throw err;
   }
 
   return response.json();
 }
 
+export interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+  role: 'admin' | 'customer';
+}
+
 // Type-safe API helpers
 export const api = {
+  // Auth
+  login: (email: string, password: string) =>
+    apiClient<{ success: boolean; data: AuthUser }>('/api/auth/login', {
+      method: 'POST', body: { email, password },
+    }),
+  logout: () => apiClient<{ success: boolean }>('/api/auth/logout', { method: 'POST' }),
+  me: () => apiClient<{ success: boolean; data: AuthUser }>('/api/auth/me'),
+  changePassword: (current_password: string, new_password: string) =>
+    apiClient<{ success: boolean; message: string }>('/api/auth/change-password', {
+      method: 'POST', body: { current_password, new_password },
+    }),
+
   // Accounts
   getAccounts: () => apiClient<{ success: boolean; data: unknown[] }>('/api/accounts'),
   getAccount: (id: string) => apiClient<{ success: boolean; data: unknown }>(`/api/accounts/${id}`),
