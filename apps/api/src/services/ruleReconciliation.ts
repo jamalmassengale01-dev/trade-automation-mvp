@@ -11,7 +11,7 @@
  */
 
 import { query } from '../db';
-import { getBrokerAdapter } from '../brokers';
+import { getConnectedBrokerAdapter } from '../brokers';
 import { BrokerAccount, BrokerType } from '../types';
 import {
   reconcileRules,
@@ -92,7 +92,9 @@ export async function reconcileAccountRules(accountId: string): Promise<RuleChec
   }
 
   try {
-    const adapter = getBrokerAdapter(acct.broker_type as BrokerType);
+    // Connect on first use. Adapters are created lazily, so one reached only
+    // by this background sweep would otherwise never have been connected.
+    const adapter = await getConnectedBrokerAdapter(acct.broker_type as BrokerType);
     const info = await adapter.getAccountInfo(acct as unknown as BrokerAccount);
 
     const preset: PresetAssumptions = {

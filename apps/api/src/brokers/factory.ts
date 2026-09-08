@@ -12,6 +12,17 @@ const factoryLogger = logger.child({ context: 'BrokerFactory' });
 const adapterRegistry: Map<string, IBrokerAdapter> = new Map();
 
 /**
+ * Which adapters have been connected.
+ *
+ * Tracked here because BaseBrokerAdapter.isConnected is protected, so callers
+ * cannot ask. Without this, the failure is silent and confusing: adapters are
+ * created lazily on first use, so connectAllAdapters() at boot iterates an
+ * EMPTY registry and connects nothing. Every adapter created afterwards then
+ * throws "Broker adapter X is not connected" on its first real call.
+ */
+const connectedAdapters = new Set<string>();
+
+/**
  * Get or create a broker adapter instance
  */
 export function getBrokerAdapter(brokerType: BrokerType): IBrokerAdapter {
@@ -58,6 +69,23 @@ export function getBrokerAdapter(brokerType: BrokerType): IBrokerAdapter {
 }
 
 /**
+ * Get an adapter, connecting it on first use.
+ *
+ * Prefer this over getBrokerAdapter() anywhere a broker call follows. Every
+ * connect() implementation is idempotent and cheap, but the guard keeps the
+ * common path to a Set lookup.
+ */
+export async function getConnectedBrokerAdapter(brokerType: BrokerType): Promise<IBrokerAdapter> {
+  const adapter = getBrokerAdapter(brokerType);
+  if (connectedAdapters.has(brokerType)) return adapter;
+
+  await adapter.connect();
+  connectedAdapters.add(brokerType);
+  factoryLogger.info('Connected adapter on first use', { brokerType });
+  return adapter;
+}
+
+/**
  * Connect all registered adapters
  */
 export async function connectAllAdapters(): Promise<void> {
@@ -66,6 +94,7 @@ export async function connectAllAdapters(): Promise<void> {
   for (const [type, adapter] of adapterRegistry) {
     try {
       await adapter.connect();
+      connectedAdapters.add(type);
       factoryLogger.info('Connected adapter', { type });
     } catch (error) {
       factoryLogger.error('Failed to connect adapter', { 
@@ -86,6 +115,7 @@ export async function disconnectAllAdapters(): Promise<void> {
   for (const [type, adapter] of adapterRegistry) {
     try {
       await adapter.disconnect();
+      connectedAdapters.delete(type);
       factoryLogger.info('Disconnected adapter', { type });
     } catch (error) {
       factoryLogger.error('Failed to disconnect adapter', { 
@@ -96,6 +126,7 @@ export async function disconnectAllAdapters(): Promise<void> {
   }
   
   adapterRegistry.clear();
+  connectedAdapters.clear();
 }
 
 /**
@@ -120,4 +151,5 @@ export async function healthCheckAllAdapters(): Promise<Record<string, boolean>>
  */
 export function resetAllAdapters(): void {
   adapterRegistry.clear();
+  connectedAdapters.clear();
 }

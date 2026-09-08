@@ -15,7 +15,7 @@
 import { TradingViewAlert } from '../types';
 import { query } from '../db';
 import { withAccountLock, logOperation } from '../services';
-import { getBrokerAdapter } from '../brokers';
+import { getConnectedBrokerAdapter } from '../brokers';
 import { isBracketBroker } from '../brokers/bracketInterface';
 import { gbTradeQueue } from '../jobs/queues';
 import { broadcaster } from '../services/wsbroadcaster';
@@ -338,8 +338,20 @@ async function processAccount(
   const { g1, g2 } = splitGroups(contracts);
 
   // ---- tradable symbol ----------------------------------------------
-  const adapter = getBrokerAdapter(acct.broker_type as any);
+  // Connect on first use: adapters are created lazily, so one first reached
+  // here would otherwise throw "not connected" on the very next call.
+  const adapter = await getConnectedBrokerAdapter(acct.broker_type as any);
   if (!isBracketBroker(adapter)) {
+    // Refusing is correct — placing a naked entry on a broker that cannot hold
+    // the OCO would leave a position with no stop. But it has to be VISIBLE:
+    // without this the account silently produces no trade and no explanation,
+    // which is the same blind spot that hid the advisory-lock failure.
+    await riskEvent(
+      acct.id, strategyId, 'gb_broker_no_brackets',
+      `Broker '${acct.broker_type}' cannot place bracket orders, so no trade was taken. ` +
+      `Entering without an attached stop is not an option.`,
+      { brokerType: acct.broker_type }
+    );
     return { status: 'rejected', reason: `Broker ${acct.broker_type} cannot run brackets` };
   }
   const symbol = await adapter.resolveTradableSymbol(acct as any, alert.symbol);

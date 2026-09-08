@@ -56,9 +56,10 @@ export class SimulatedBrokerAdapter extends BaseBrokerAdapter {
     
     // In a real implementation, this would fetch from DB
     return {
-      accountId: account.id,
+      account_id: account.id,
       buyingPower: 50000,
       cashBalance: 50000,
+      realizedPnL: 0,
       equity: 50000,
       dayTradesRemaining: 3,
     };

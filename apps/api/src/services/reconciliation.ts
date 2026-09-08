@@ -6,7 +6,7 @@
  */
 
 import { query } from '../db';
-import { getBrokerAdapter } from '../brokers';
+import { getConnectedBrokerAdapter } from '../brokers';
 import { BrokerAccount, Position } from '../types';
 import logger from '../utils/logger';
 
@@ -53,11 +53,11 @@ export async function reconcileAccount(
     reconLogger.info('Starting reconciliation for account', {
       accountId: account.id,
       accountName: account.name,
-      brokerType: account.brokerType,
+      brokerType: account.broker_type,
     });
 
     // Get positions from broker (source of truth)
-    const adapter = getBrokerAdapter(account.brokerType);
+    const adapter = await getConnectedBrokerAdapter(account.broker_type);
     const brokerPositions = await adapter.getPositions(account);
     result.positionsFromBroker = brokerPositions.length;
 
@@ -388,13 +388,21 @@ async function flagForManualReview(
 async function recordReconciliationRun(
   result: ReconciliationResult
 ): Promise<void> {
+  // The table's CHECK constraint speaks 'running' | 'completed' | 'failed',
+  // while this service reports 'success' | 'failed'. Writing 'success' raised
+  // a constraint violation, which the caller caught and reported as a failed
+  // run — so a reconciliation that actually succeeded was recorded as failing,
+  // and no successful run has ever been persisted. Translate at the boundary
+  // rather than reshaping the public result type.
+  const dbStatus = result.status === 'success' ? 'completed' : 'failed';
+
   await query(
     `INSERT INTO reconciliation_runs (
       account_id, status, discrepancies_found, discrepancies_resolved, errors, completed_at
     ) VALUES ($1, $2, $3, $4, $5, NOW())`,
     [
       result.accountId,
-      result.status,
+      dbStatus,
       result.discrepanciesFound,
       result.discrepanciesResolved,
       JSON.stringify(result.errors),

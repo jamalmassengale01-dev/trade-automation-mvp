@@ -63,12 +63,21 @@ export class MockBrokerAdapter extends BaseBrokerAdapter implements IBracketBrok
     
     const cached = this.mockAccountInfo.get(account.id);
     if (cached) return cached;
-    
+
+    // Balance comes from settings.mockBalance so a mock account can match the
+    // preset it is assigned. A fixed $100,000 contradicted every 50K preset,
+    // and now that rule reconciliation actually reaches the broker that shows
+    // up as a preset_size_mismatch halt — the reconciler being right about a
+    // fixture that was wrong.
+    const settings = (account.settings ?? {}) as Record<string, unknown>;
+    const balance = Number(settings.mockBalance ?? 100000);
+
     const info: AccountInfo = {
       account_id: account.id,
-      buyingPower: 100000,
-      cashBalance: 100000,
-      equity: 100000,
+      buyingPower: balance,
+      cashBalance: balance,
+      realizedPnL: 0,
+      equity: balance,
       dayTradesRemaining: 3,
     };
     

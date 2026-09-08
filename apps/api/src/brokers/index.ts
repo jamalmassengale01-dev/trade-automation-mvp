@@ -3,6 +3,7 @@ export { MockBrokerAdapter } from './mockBroker';
 export { SimulatedBrokerAdapter } from './simulatedBroker';
 export {
   getBrokerAdapter,
+  getConnectedBrokerAdapter,
   connectAllAdapters,
   disconnectAllAdapters,
   healthCheckAllAdapters,
