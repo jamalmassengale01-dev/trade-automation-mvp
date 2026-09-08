@@ -125,6 +125,24 @@ export const api = {
     apiClient<{ success: boolean; data: GbPreset }>(`/api/gb/presets/${id}`, { method: 'PATCH', body }),
   deleteGbPreset: (id: string) =>
     apiClient<{ success: boolean; message: string }>(`/api/gb/presets/${id}`, { method: 'DELETE' }),
+  // Catalog
+  getCatalog: () => apiClient<{ success: boolean; data: CatalogEntry[] }>('/api/catalog'),
+  getCatalogVersions: (id: string) =>
+    apiClient<{ success: boolean; data: CatalogVersion[] }>(`/api/catalog/${id}/versions`),
+  getCatalogDrift: () =>
+    apiClient<{ success: boolean; data: CatalogDrift[] }>('/api/catalog/drift'),
+  createCatalogEntry: (body: Record<string, unknown>) =>
+    apiClient<{ success: boolean; data: { entry: CatalogEntry; findings: PropFirmFinding[] } }>(
+      '/api/catalog', { method: 'POST', body }),
+  updateCatalogEntry: (id: string, body: Record<string, unknown>) =>
+    apiClient<{ success: boolean; data: CatalogEntry }>(`/api/catalog/${id}`, { method: 'PATCH', body }),
+  publishCatalogVersion: (id: string, body: Record<string, unknown>) =>
+    apiClient<{ success: boolean; data: { version: number; changedFields: string[]; findings: PropFirmFinding[] } }>(
+      `/api/catalog/${id}/versions`, { method: 'POST', body }),
+  assignCatalogEntry: (accountId: string, entryId: string) =>
+    apiClient<{ success: boolean; data: { presetId: string; version: number; entryName: string } }>(
+      `/api/catalog/assign/${accountId}`, { method: 'POST', body: { entry_id: entryId } }),
+
   calculatePropFirm: (body: PropFirmInputs) =>
     apiClient<{ success: boolean; data: PropFirmCalcResult }>('/api/gb/presets/calculate', { method: 'POST', body }),
   verifyGbPreset: (id: string, body: { verified_by?: string; source_url?: string; stale_after_days?: number }) =>
@@ -190,6 +208,56 @@ export interface CopierMapping {
 // ============================================
 // GB LIVE / LAUNCHPAD TYPES
 // ============================================
+
+export interface CatalogEntry {
+  id: string;
+  preset_id: string;
+  display_name: string;
+  prop_firm: string;
+  account_size: number;
+  phase: 'eval' | 'funded';
+  description: string | null;
+  is_published: boolean;
+  sort_order: number;
+  current_version: number;
+  accounts_using: number;
+  start_balance: string | number;
+  target_profit: string | number | null;
+  max_drawdown: string | number;
+  daily_loss_cap: string | number;
+  base_risk: string | number;
+  max_contracts: number;
+  dd_mode: string;
+  cap_step: number;
+  max_trades_day: number;
+  tp1_r: string | number;
+  tp2_r: string | number;
+  profit_split: string | number;
+  verified_at: string | null;
+  stale_after_days: number;
+}
+
+export interface CatalogVersion {
+  id: string;
+  entry_id: string;
+  version: number;
+  preset_values: Record<string, unknown>;
+  derived_from: Record<string, unknown> | null;
+  findings: PropFirmFinding[];
+  changelog: string | null;
+  published_by_name: string | null;
+  published_at: string;
+  effective_from: string | null;
+}
+
+export interface CatalogDrift {
+  id: string;
+  name: string;
+  catalog_entry_id: string;
+  catalog_version_at_assign: number;
+  current_version: number;
+  display_name: string;
+}
 
 // ---- Prop firm calculator ----
 

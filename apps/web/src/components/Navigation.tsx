@@ -12,6 +12,7 @@ import { useAuth } from './AuthProvider';
 const navItems = [
   { href: '/', label: 'Dashboard', icon: '📊' },
   { href: '/fleet', label: 'Fleet', icon: '🚀' },
+  { href: '/catalog', label: 'Plans', icon: '📚' },
   { href: '/presets', label: 'Presets', icon: '🎛️', adminOnly: true },
   { href: '/calculator', label: 'Calculator', icon: '🧮', adminOnly: true },
   { href: '/strategies', label: 'Strategies', icon: '⚡' },

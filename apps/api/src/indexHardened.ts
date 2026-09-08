@@ -35,6 +35,7 @@ import strategiesRoutes from './routes/strategies';
 import gbRoutes from './routes/gb';
 import { handleTradingViewWebhook, handleTradingViewWebhookByStrategy } from './webhook/handlerHardened';
 import authRoutes from './routes/auth';
+import catalogRoutes from './routes/catalog';
 import { attachUser, requireAuth } from './middleware/auth';
 import { cleanupExpiredSessions } from './services/session';
 
@@ -103,6 +104,7 @@ app.use('/api/risk-events', requireAuth, riskEventsRoutes);
 app.use('/api/system', requireAuth, systemRoutes);
 app.use('/api/strategies', requireAuth, strategiesRoutes);
 app.use('/api/gb', requireAuth, gbRoutes);
+app.use('/api/catalog', requireAuth, catalogRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {
