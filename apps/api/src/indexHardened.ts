@@ -39,6 +39,7 @@ import catalogRoutes from './routes/catalog';
 import { attachUser, requireAuth } from './middleware/auth';
 import { cleanupExpiredSessions } from './services/session';
 import { eodFlattenTick } from './services/eodFlatten';
+import { testSessionOverride, effectiveSessionWindows } from './strategy/sessions';
 
 const app = express();
 
@@ -167,6 +168,20 @@ async function startServer() {
         reconciliation: true,
       },
     });
+
+    // A widened session window changes when the strategy is willing to trade.
+    // It is refused outright in production, but in development it must be
+    // impossible to have running without knowing.
+    const testSession = testSessionOverride();
+    if (testSession) {
+      logger.warn(
+        `SESSION OVERRIDE ACTIVE — '${testSession}' is open ALL DAY. ` +
+        'Signals will be accepted outside real session windows. ' +
+        'This is development-only and is ignored when NODE_ENV=production. ' +
+        'Unset GB_TEST_SESSION to restore normal behaviour.',
+        { session: testSession, windows: effectiveSessionWindows() }
+      );
+    }
 
     // Connect broker adapters
     await connectAllAdapters();

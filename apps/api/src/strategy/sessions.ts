@@ -37,12 +37,67 @@ export function etMinutesOfDay(date: Date): number {
   return hour * 60 + minute;
 }
 
+/**
+ * Development-only session override.
+ *
+ * The strategy trades three 30-minute windows a day. That makes the execution
+ * path untestable for 23 hours out of 24, and a path you can only exercise
+ * during three narrow windows is a path that goes under-tested — which is how
+ * a bug like the advisory-lock failure survived to production in the first
+ * place.
+ *
+ * Setting GB_TEST_SESSION to a session name widens THAT session to the whole
+ * day, so a test alert resolves to a real session and every downstream
+ * behaviour — the used-flag column, the daily trade counter, the ladder — is
+ * exercised exactly as it would be at 10:00 AM ET. Nothing about the gate
+ * logic changes; only the window this one session occupies.
+ *
+ * Refuses to activate when NODE_ENV is production. That check lives here
+ * rather than at the call site so there is exactly one place it can be got
+ * wrong.
+ */
+const TEST_SESSION_ENV = 'GB_TEST_SESSION';
+
+export function testSessionOverride(): Session | null {
+  if (process.env.NODE_ENV === 'production') return null;
+  const raw = (process.env[TEST_SESSION_ENV] ?? '').trim().toLowerCase();
+  if (raw === 'london' || raw === 'nyam' || raw === 'nypm') return raw;
+  return null;
+}
+
+/**
+ * Session windows in effect, honouring the development override.
+ * Exported so startup can log exactly what is active.
+ */
+export function effectiveSessionWindows(): typeof SESSION_WINDOWS {
+  const override = testSessionOverride();
+  if (!override) return SESSION_WINDOWS;
+  return {
+    ...SESSION_WINDOWS,
+    [override]: {
+      startMin: 0,
+      endMin: 24 * 60 - 1,
+      label: `${SESSION_WINDOWS[override].label} — WIDENED TO ALL DAY (${TEST_SESSION_ENV})`,
+    },
+  };
+}
+
 /** Returns which session a timestamp falls in (inclusive of the closing minute), or null. */
 export function getSession(date: Date): Session | null {
   const { hour, minute } = etParts(date);
   const min = hour * 60 + minute;
-  for (const [name, w] of Object.entries(SESSION_WINDOWS) as Array<[Session, typeof SESSION_WINDOWS[Session]]>) {
+  const windows = effectiveSessionWindows();
+  // Iterate the canonical order so a widened window never shadows a real one:
+  // a timestamp inside the true NY AM window still resolves to nyam.
+  const order: Session[] = ['london', 'nyam', 'nypm'];
+  const override = testSessionOverride();
+  for (const name of order) {
+    const w = SESSION_WINDOWS[name];
     if (min >= w.startMin && min <= w.endMin) return name;
+  }
+  if (override) {
+    const w = windows[override];
+    if (min >= w.startMin && min <= w.endMin) return override;
   }
   return null;
 }
