@@ -50,6 +50,13 @@ export interface AccountInfo {
   buyingPower: number;
   cashBalance: number;
   equity: number;
+  /**
+   * Broker-reported realized P&L for the current broker day.
+   * Rule reconciliation compares this against our own tracked day P&L — the
+   * value the daily-loss gate sizes from — so it must stay separate rather
+   * than only being folded into `equity`.
+   */
+  realizedPnL?: number;
   dayTradesRemaining?: number;
 }
 

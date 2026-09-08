@@ -103,6 +103,12 @@ export const api = {
     apiClient<{ success: boolean; message: string }>(`/api/gb/presets/${id}`, { method: 'DELETE' }),
   calculatePropFirm: (body: PropFirmInputs) =>
     apiClient<{ success: boolean; data: PropFirmCalcResult }>('/api/gb/presets/calculate', { method: 'POST', body }),
+  verifyGbPreset: (id: string, body: { verified_by?: string; source_url?: string; stale_after_days?: number }) =>
+    apiClient<{ success: boolean; data: GbPreset }>(`/api/gb/presets/${id}/verify`, { method: 'POST', body }),
+  getReconciliation: () =>
+    apiClient<{ success: boolean; data: RuleCheck[] }>('/api/gb/reconciliation'),
+  reconcileAll: () =>
+    apiClient<{ success: boolean; data: { checked: number; halts: number; warns: number; errors: number } }>('/api/gb/reconcile', { method: 'POST' }),
   getGbTrades: (page = 1, pageSize = 20) =>
     apiClient<{ success: boolean; data: { items: GbTrade[]; total: number; page: number; pageSize: number; totalPages: number } }>(`/api/gb/trades?page=${page}&pageSize=${pageSize}`),
   getGbAccountTrades: (accountId: string, page = 1, pageSize = 20) =>
@@ -248,6 +254,22 @@ export interface PropFirmCalcResult {
   derived_from: Record<string, unknown>;
 }
 
+export interface RuleCheck {
+  broker_account_id: string;
+  account_name: string;
+  preset_id: string | null;
+  checked_at: string;
+  verdict: 'ok' | 'warn' | 'halt' | 'error';
+  broker_balance: string | number | null;
+  broker_realized_pnl: string | number | null;
+  broker_equity: string | number | null;
+  tracked_day_pnl: string | number | null;
+  tracked_cum_pnl: string | number | null;
+  implied_start: string | number | null;
+  findings: Array<{ id: string; severity: 'halt' | 'warn' | 'info'; message: string }>;
+  error_message: string | null;
+}
+
 export interface GbPreset {
   id: string;
   name: string;
@@ -273,6 +295,10 @@ export interface GbPreset {
   sniper_tp_r: string | number;
   sniper_max_trades_day: number;
   notes?: string;
+  verified_at?: string | null;
+  verified_by?: string | null;
+  source_url?: string | null;
+  stale_after_days?: number;
 }
 
 export interface GbAccountPreset {

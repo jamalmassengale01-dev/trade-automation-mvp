@@ -3,6 +3,7 @@ import { query } from '../db';
 import { dllHeadroom } from '../strategy/gate';
 import { bracketManager } from '../strategy/bracketManager';
 import { calculatePropFirm, toDerivedFrom, PropFirmInputs } from '../strategy/propFirmMath';
+import { reconcileAllAccounts, reconcileAccountRules } from '../services/ruleReconciliation';
 import config from '../config';
 import logger from '../utils/logger';
 
@@ -405,6 +406,108 @@ router.post('/trades/:id/simulate-exit', async (req: Request, res: Response) => 
     const message = error instanceof Error ? error.message : String(error);
     routeLogger.warn('simulate-exit failed', { tradeId: req.params.id, error: message });
     res.status(400).json({ success: false, error: message });
+  }
+});
+
+/**
+ * POST /api/gb/presets/:id/verify
+ * Record that a human confirmed this preset against the firm's published
+ * rules. The daily loss cap and drawdown are enforced firm-side and are not
+ * readable from the broker API, so this stamp is the only thing standing
+ * between the fleet and silently trading last quarter's rules.
+ */
+router.post('/presets/:id/verify', async (req: Request, res: Response) => {
+  try {
+    const { verified_by, source_url, stale_after_days } = req.body ?? {};
+    if (stale_after_days !== undefined && (typeof stale_after_days !== 'number' || stale_after_days <= 0)) {
+      res.status(400).json({ success: false, error: 'stale_after_days must be a positive number' });
+      return;
+    }
+    const result = await query(
+      `UPDATE presets
+       SET verified_at = NOW(),
+           verified_by = COALESCE($2, verified_by),
+           source_url  = COALESCE($3, source_url),
+           stale_after_days = COALESCE($4, stale_after_days)
+       WHERE id = $1
+       RETURNING *`,
+      [
+        req.params.id,
+        verified_by ? String(verified_by) : null,
+        source_url ? String(source_url) : null,
+        stale_after_days ?? null,
+      ]
+    );
+    if (result.rowCount === 0) {
+      res.status(404).json({ success: false, error: 'Preset not found' });
+      return;
+    }
+    routeLogger.info('Preset verified', { id: req.params.id, by: verified_by });
+    res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    routeLogger.error('Failed to verify preset', { id: req.params.id, error: error instanceof Error ? error.message : String(error) });
+    res.status(500).json({ success: false, error: 'Failed to verify preset' });
+  }
+});
+
+/**
+ * POST /api/gb/reconcile
+ * Run rule reconciliation across every active account with a preset.
+ */
+router.post('/reconcile', async (_req: Request, res: Response) => {
+  try {
+    const results = await reconcileAllAccounts();
+    res.json({
+      success: true,
+      data: {
+        checked: results.length,
+        halts: results.filter((r) => r.verdict === 'halt').length,
+        warns: results.filter((r) => r.verdict === 'warn').length,
+        errors: results.filter((r) => r.verdict === 'error').length,
+        results,
+      },
+    });
+  } catch (error) {
+    routeLogger.error('Reconciliation sweep failed', { error: error instanceof Error ? error.message : String(error) });
+    res.status(500).json({ success: false, error: 'Reconciliation sweep failed' });
+  }
+});
+
+/**
+ * POST /api/gb/accounts/:id/reconcile
+ * Run rule reconciliation for one account.
+ */
+router.post('/accounts/:id/reconcile', async (req: Request, res: Response) => {
+  try {
+    const result = await reconcileAccountRules(req.params.id);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    routeLogger.error('Reconciliation failed', { accountId: req.params.id, error: error instanceof Error ? error.message : String(error) });
+    res.status(500).json({ success: false, error: 'Reconciliation failed' });
+  }
+});
+
+/**
+ * GET /api/gb/reconciliation
+ * Newest rule check per account, for the fleet health view.
+ */
+router.get('/reconciliation', async (_req: Request, res: Response) => {
+  try {
+    const result = await query(
+      `SELECT DISTINCT ON (c.broker_account_id)
+              c.broker_account_id, c.preset_id, c.checked_at, c.verdict,
+              c.broker_balance, c.broker_realized_pnl, c.broker_equity,
+              c.tracked_day_pnl, c.tracked_cum_pnl, c.implied_start,
+              c.findings, c.error_message,
+              ba.name AS account_name
+       FROM account_rule_checks c
+       JOIN broker_accounts ba ON ba.id = c.broker_account_id
+       ORDER BY c.broker_account_id, c.checked_at DESC`
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    routeLogger.error('Failed to list reconciliation', { error: error instanceof Error ? error.message : String(error) });
+    res.status(500).json({ success: false, error: 'Failed to list reconciliation' });
   }
 });
 

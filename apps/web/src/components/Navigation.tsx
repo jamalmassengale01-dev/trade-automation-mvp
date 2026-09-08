@@ -15,6 +15,7 @@ const navItems = [
   { href: '/accounts', label: 'Accounts', icon: '💳' },
   { href: '/alerts', label: 'Alerts', icon: '🔔' },
   { href: '/orders', label: 'Orders', icon: '📋' },
+  { href: '/health', label: 'Account Health', icon: '🩺' },
   { href: '/risk-events', label: 'Risk Events', icon: '⚠️' },
   { href: '/settings', label: 'Settings', icon: '⚙️' },
 ];

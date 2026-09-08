@@ -28,6 +28,8 @@ import {
   remainingTarget, isSniperEligible, sniperRisk,
 } from '../strategy/gate';
 import { bracketManager } from '../strategy/bracketManager';
+import { shouldBlockTrade } from '../strategy/ruleReconciler';
+import { getLatestRuleCheck } from '../services/ruleReconciliation';
 import type { GbLiveMeta } from '../webhook/gbLiveSchema';
 import logger from '../utils/logger';
 
@@ -171,6 +173,24 @@ async function processAccount(
   if (now.getTime() - alertTime.getTime() > STALE_SIGNAL_MS) {
     await riskEvent(acct.id, strategyId, 'gb_stale_signal', `Signal is ${Math.round((now.getTime() - alertTime.getTime()) / 60000)} min old`, { alertTime: alertTime.toISOString() });
     return { status: 'rejected', reason: 'stale_signal' };
+  }
+
+  // ---- rule reconciliation halt ---------------------------------------
+  // Reads the newest persisted check rather than calling the broker inline:
+  // a signal must not wait on a broker round-trip, and a broker outage must
+  // not stall execution. Fails OPEN when no check exists (see shouldBlockTrade)
+  // and CLOSED on a halt verdict, where we have positive evidence that the
+  // numbers this account would size from are wrong.
+  const ruleCheck = await getLatestRuleCheck(acct.id);
+  const block = shouldBlockTrade(ruleCheck);
+  if (block.blocked) {
+    const halting = (ruleCheck?.findings ?? []).filter((f) => f.severity === 'halt');
+    await riskEvent(
+      acct.id, strategyId, 'gb_rule_reconciliation_halt',
+      `Rule reconciliation halted this account: ${halting.map((f) => f.id).join(', ') || 'unknown'}`,
+      { checkedAt: ruleCheck?.checkedAt?.toISOString() ?? null, findings: halting }
+    );
+    return { status: 'rejected', reason: block.reason };
   }
 
   // ---- no concurrent trade per account --------------------------------

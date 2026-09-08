@@ -111,6 +111,7 @@ export class TradovateBrokerAdapter extends BaseBrokerAdapter implements IBracke
       account_id: account.id,
       cashBalance,
       buyingPower: cashBalance,
+      realizedPnL,
       equity: cashBalance + realizedPnL + openPnL,
     };
   }

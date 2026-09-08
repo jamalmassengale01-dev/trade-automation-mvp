@@ -234,6 +234,8 @@ export default function PresetsPage() {
 
             {p.notes && <p className="text-xs text-terminal-muted italic border-t border-terminal-border pt-2">{p.notes}</p>}
 
+            <VerificationRow preset={p} onVerified={load} />
+
             <div className="flex gap-2 pt-1">
               <button onClick={() => openEdit(p)} className="btn btn-secondary text-xs flex-1">Edit</button>
               <button onClick={() => handleDuplicate(p)} className="btn btn-secondary text-xs flex-1">Duplicate</button>
@@ -322,6 +324,57 @@ export default function PresetsPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * A prop firm's daily loss cap and drawdown are enforced firm-side and are not
+ * exposed by the broker API, so they can't be verified automatically. This row
+ * makes the age of the last human confirmation impossible to miss — a fleet
+ * silently trading last quarter's rules is the failure mode it guards against.
+ */
+function VerificationRow({ preset, onVerified }: { preset: GbPreset; onVerified: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const staleAfter = preset.stale_after_days ?? 90;
+  const verifiedAt = preset.verified_at ? new Date(preset.verified_at) : null;
+  const ageDays = verifiedAt
+    ? Math.floor((Date.now() - verifiedAt.getTime()) / 86_400_000)
+    : null;
+  const stale = ageDays === null || ageDays > staleAfter;
+
+  async function verify() {
+    setBusy(true);
+    try {
+      await api.verifyGbPreset(preset.id, { verified_by: 'dashboard' });
+      toast.success(`"${preset.name}" marked verified`);
+      onVerified();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to mark verified');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex items-center justify-between gap-2 border-t border-terminal-border pt-2">
+      <div className="text-xs">
+        <span className={stale ? 'text-yellow-500' : 'text-terminal-muted'}>
+          {ageDays === null
+            ? 'Rules never verified'
+            : stale
+            ? `Rules verified ${ageDays}d ago — stale`
+            : `Rules verified ${ageDays}d ago`}
+        </span>
+      </div>
+      <button
+        onClick={verify}
+        disabled={busy}
+        className="px-2.5 py-1 rounded text-xs bg-terminal-panel text-terminal-muted hover:text-terminal-text transition-colors disabled:opacity-50"
+        title="Record that you just confirmed these numbers against the firm's rules page"
+      >
+        {busy ? '…' : 'Mark verified'}
+      </button>
     </div>
   );
 }

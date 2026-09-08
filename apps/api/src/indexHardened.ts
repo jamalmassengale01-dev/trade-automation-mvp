@@ -19,6 +19,7 @@ import { runStartupReconciliation } from './services/reconciliation';
 import { cleanupExpiredKeys } from './services/idempotency';
 import { cleanupOldHeartbeats } from './services/heartbeat';
 import { cleanupOldEntries as cleanupDLQ } from './services/deadLetter';
+import { reconcileAllAccounts as reconcileRuleAssumptions } from './services/ruleReconciliation';
 import { broadcaster } from './services/wsbroadcaster';
 import { bracketManager } from './strategy/bracketManager';
 // Importing workersHardened starts the alert/order/gb-trade BullMQ workers as a side effect.
@@ -228,6 +229,31 @@ function startCleanupTasks(): void {
       });
     }
   }, 24 * 60 * 60 * 1000);
+
+  // Rule reconciliation: compare each account's preset assumptions against
+  // what the broker actually reports. Runs every 15 minutes so a wrong preset
+  // or a drifting day-P&L counter is caught within one session window rather
+  // than after a blown account. The executor reads the persisted verdict, so
+  // this never sits on the signal path.
+  const runRuleReconciliation = async () => {
+    try {
+      const results = await reconcileRuleAssumptions();
+      const halts = results.filter((r) => r.verdict === 'halt').length;
+      if (halts > 0) {
+        logger.error('Rule reconciliation found halting issues', {
+          halts,
+          accounts: results.filter((r) => r.verdict === 'halt').map((r) => r.accountName),
+        });
+      }
+    } catch (error) {
+      logger.error('Rule reconciliation sweep failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+  setInterval(runRuleReconciliation, 15 * 60 * 1000);
+  // Run once shortly after boot so a restart re-establishes verdicts promptly.
+  setTimeout(runRuleReconciliation, 30 * 1000);
 }
 
 // ============================================
