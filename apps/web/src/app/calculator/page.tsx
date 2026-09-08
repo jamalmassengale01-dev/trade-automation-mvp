@@ -24,7 +24,7 @@ const DEFAULTS: Form = {
   name: '', id: '', propFirm: 'apex', phase: 'eval',
   startBalance: '50000', targetProfit: '3000', maxDrawdown: '2000', dailyLossCap: '1000',
   ddMode: 'eod_trailing', maxContracts: '60',
-  minTradingDays: '7', consistencyPct: '50', minPayout: '500', safetyNetBuffer: '100',
+  minTradingDays: '1', evalExpiryDays: '30', consistencyPct: '50', minPayout: '500', safetyNetBuffer: '100',
   profitSplit: '1.0',
   riskDivisor: '3', riskRounding: 'ceil', baseRiskOverride: '',
   capStep: '4', step2: '1', step3: '2', step4: '4',
@@ -72,6 +72,7 @@ export default function CalculatorPage() {
       phase: form.phase as 'eval' | 'funded',
       maxContracts: num(form.maxContracts) ?? 0,
       minTradingDays: num(form.minTradingDays),
+      evalExpiryDays: num(form.evalExpiryDays),
       consistencyPct: num(form.consistencyPct),
       minPayout: num(form.minPayout),
       safetyNetBuffer: num(form.safetyNetBuffer),
@@ -161,6 +162,9 @@ export default function CalculatorPage() {
               <L label="Max drawdown"><I value={form.maxDrawdown} onChange={set('maxDrawdown')} /></L>
               <L label="Daily loss limit"><I value={form.dailyLossCap} onChange={set('dailyLossCap')} /></L>
               <L label="Min trading days"><I value={form.minTradingDays} onChange={set('minTradingDays')} /></L>
+              <L label="Eval expires (days)" hint="0 if no expiry">
+                <I value={form.evalExpiryDays} onChange={set('evalExpiryDays')} />
+              </L>
               <L label="Consistency %" hint="0 to disable">
                 <I value={form.consistencyPct} onChange={set('consistencyPct')} />
               </L>

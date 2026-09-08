@@ -289,6 +289,7 @@ export interface PropFirmInputs {
   phase: 'eval' | 'funded';
   maxContracts: number;
   minTradingDays?: number;
+  evalExpiryDays?: number;
   consistencyPct?: number;
   minPayout?: number;
   safetyNetBuffer?: number;
@@ -358,6 +359,7 @@ export interface PropFirmCalcResult {
     base: ProjectionRow;
     sensitivity: ProjectionRow[];
     bindingDaysToPass: number | null;
+    tradingDaysBeforeExpiry: number | null;
     caveat: string;
   };
   findings: PropFirmFinding[];

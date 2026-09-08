@@ -40,6 +40,13 @@ export interface PropFirmInputs {
   maxContracts: number;
   /** Firm's minimum trading days before a pass / payout can be claimed. */
   minTradingDays?: number;
+  /**
+   * Calendar days an evaluation stays active before it expires, if the firm
+   * imposes one. Apex EOD evals are 30 days with no resets, which makes a slow
+   * pass a total loss of the eval fee rather than merely a slow one.
+   * 0 or undefined = no expiry.
+   */
+  evalExpiryDays?: number;
   /** e.g. 50 => no single day may be >= 50% of profit since last payout. 0 disables. */
   consistencyPct?: number;
   /** Funded only: smallest payout the firm will process. */
@@ -143,6 +150,8 @@ export interface PropFirmProjections {
   sensitivity: ProjectionRow[];
   /** max(firm's minimum trading days, projected days to target). */
   bindingDaysToPass: number | null;
+  /** Trading days available before the eval expires, or null if no expiry. */
+  tradingDaysBeforeExpiry: number | null;
   caveat: string;
 }
 
@@ -179,7 +188,7 @@ export interface PropFirmCalcResult {
     Pick<
       PropFirmInputs,
       | 'startBalance' | 'targetProfit' | 'maxDrawdown' | 'dailyLossCap' | 'ddMode'
-      | 'phase' | 'maxContracts' | 'minTradingDays' | 'consistencyPct' | 'minPayout'
+      | 'phase' | 'maxContracts' | 'minTradingDays' | 'evalExpiryDays' | 'consistencyPct' | 'minPayout'
       | 'safetyNetBuffer' | 'profitSplit' | 'riskDivisor' | 'riskRounding' | 'capStep'
       | 'maxTradesDay' | 'tp1R' | 'tp2R' | 'symbol' | 'typicalStopPts'
       | 'assumedWinRate' | 'tradesPerDay'
@@ -193,6 +202,7 @@ export interface PropFirmCalcResult {
 
 const DEFAULTS = {
   minTradingDays: 0,
+  evalExpiryDays: 0,
   consistencyPct: 50,
   minPayout: 0,
   safetyNetBuffer: 0,
@@ -258,6 +268,7 @@ export function calculatePropFirm(input: PropFirmInputs): PropFirmCalcResult {
   }
 
   const minTradingDays = Number(input.minTradingDays ?? DEFAULTS.minTradingDays);
+  const evalExpiryDays = Number(input.evalExpiryDays ?? DEFAULTS.evalExpiryDays);
   const consistencyPct = Number(input.consistencyPct ?? DEFAULTS.consistencyPct);
   const minPayout = Number(input.minPayout ?? DEFAULTS.minPayout);
   const safetyNetBuffer = Number(input.safetyNetBuffer ?? DEFAULTS.safetyNetBuffer);
@@ -487,7 +498,10 @@ export function calculatePropFirm(input: PropFirmInputs): PropFirmCalcResult {
     findings.push({
       id: 'min_days_unset',
       severity: 'info',
-      message: 'No minimum trading days set. Confirm on the firm\'s rules page — most require 5-10.',
+      message:
+        'No minimum trading-day requirement set. Confirm against the firm\'s account page — ' +
+        'some impose one and some do not (Apex EOD evaluations are 1 day), so this is worth ' +
+        'reading rather than assuming.',
     });
   }
 
@@ -529,12 +543,42 @@ export function calculatePropFirm(input: PropFirmInputs): PropFirmCalcResult {
     });
   }
 
+  // Trading days vs calendar days: an expiry window is calendar, a projection
+  // is trading days. Roughly 5 trading days per 7 calendar days.
+  const TRADING_DAYS_PER_CALENDAR_DAY = 5 / 7;
+  if (evalExpiryDays > 0 && base.daysToTarget !== null) {
+    const tradingDaysAvailable = Math.floor(evalExpiryDays * TRADING_DAYS_PER_CALENDAR_DAY);
+    const needed = Math.max(minTradingDays, base.daysToTarget);
+    if (needed > tradingDaysAvailable) {
+      findings.push({
+        id: 'eval_expiry_unreachable',
+        severity: 'error',
+        message:
+          `The evaluation expires after ${evalExpiryDays} calendar days — about ` +
+          `${tradingDaysAvailable} trading days — but reaching the target projects to ${needed} ` +
+          `trading days at a ${round2(assumedWinRate * 100)}% win rate. This configuration is ` +
+          `expected to expire before it passes.`,
+      });
+    } else if (needed > tradingDaysAvailable * 0.7) {
+      findings.push({
+        id: 'eval_expiry_tight',
+        severity: 'warning',
+        message:
+          `Reaching the target projects to ${needed} trading days against roughly ` +
+          `${tradingDaysAvailable} available before the ${evalExpiryDays}-day expiry. Little room ` +
+          `for a slow start, and an expired eval is a lost fee, not a delayed pass.`,
+      });
+    }
+  }
+
   const projections: PropFirmProjections = {
     assumedWinRate,
     tradesPerDay,
     base,
     sensitivity,
     bindingDaysToPass,
+    tradingDaysBeforeExpiry:
+      evalExpiryDays > 0 ? Math.floor(evalExpiryDays * (5 / 7)) : null,
     caveat:
       'Projections assume a fixed win rate that is NOT validated from live trading data, and ' +
       'ignore ladder step-ups, session fire rates, and slippage. Treat as directional only — ' +
@@ -582,7 +626,7 @@ export function calculatePropFirm(input: PropFirmInputs): PropFirmCalcResult {
   return {
     inputs: {
       startBalance, targetProfit, maxDrawdown, dailyLossCap, ddMode, phase, maxContracts,
-      minTradingDays, consistencyPct, minPayout, safetyNetBuffer, profitSplit, riskDivisor,
+      minTradingDays, evalExpiryDays, consistencyPct, minPayout, safetyNetBuffer, profitSplit, riskDivisor,
       riskRounding, capStep, maxTradesDay, tp1R, tp2R, symbol, typicalStopPts,
       assumedWinRate, tradesPerDay, stepMultipliers,
     },

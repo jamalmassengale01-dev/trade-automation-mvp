@@ -229,6 +229,64 @@ describe('calculatePropFirm — projections', () => {
   });
 });
 
+describe('calculatePropFirm — evaluation expiry', () => {
+  // Verified from apextraderfunding.com: the 50K EOD Trail eval is active for
+  // 30 calendar days, expires after 30 days, and has no resets. A slow pass is
+  // therefore a lost fee, not a delayed one.
+  const APEX_WITH_EXPIRY = { ...APEX_50K_EVAL, minTradingDays: 1, evalExpiryDays: 30 };
+
+  it('converts a calendar expiry window into trading days', () => {
+    const r = calculatePropFirm(APEX_WITH_EXPIRY);
+    // 30 calendar days x 5/7 ≈ 21 trading days
+    expect(r.projections.tradingDaysBeforeExpiry).toBe(21);
+  });
+
+  it('is null when the firm imposes no expiry', () => {
+    expect(calculatePropFirm(APEX_50K_EVAL).projections.tradingDaysBeforeExpiry).toBeNull();
+  });
+
+  it('errors when the target cannot be reached before expiry', () => {
+    // A low win rate stretches days-to-target well past the window.
+    const r = calculatePropFirm({ ...APEX_WITH_EXPIRY, assumedWinRate: 0.47 });
+    expect(ids(r)).toContain('eval_expiry_unreachable');
+    expect(r.findings.find((f) => f.id === 'eval_expiry_unreachable')!.severity).toBe('error');
+  });
+
+  it('warns when the projection leaves little room before expiry', () => {
+    const r = calculatePropFirm({ ...APEX_WITH_EXPIRY, assumedWinRate: 0.55 });
+    expect(ids(r)).toEqual(
+      expect.arrayContaining([expect.stringMatching(/^eval_expiry_(tight|unreachable)$/)])
+    );
+  });
+
+  it('stays quiet when the target is comfortably inside the window', () => {
+    const r = calculatePropFirm({ ...APEX_WITH_EXPIRY, assumedWinRate: 0.75 });
+    expect(ids(r)).not.toContain('eval_expiry_unreachable');
+    expect(ids(r)).not.toContain('eval_expiry_tight');
+  });
+
+  it('respects a firm minimum that alone exceeds the window', () => {
+    const r = calculatePropFirm({
+      ...APEX_WITH_EXPIRY, minTradingDays: 25, assumedWinRate: 0.75,
+    });
+    expect(ids(r)).toContain('eval_expiry_unreachable');
+  });
+});
+
+describe('calculatePropFirm — min trading days finding', () => {
+  it('does not assert a range it cannot know', () => {
+    const r = calculatePropFirm({ ...APEX_50K_EVAL, minTradingDays: 0 });
+    const f = r.findings.find((x) => x.id === 'min_days_unset')!;
+    expect(f.message).not.toMatch(/most require 5-10/);
+    expect(f.message).toMatch(/Apex EOD evaluations are 1 day/);
+  });
+
+  it('stays silent once a minimum is supplied', () => {
+    const r = calculatePropFirm({ ...APEX_50K_EVAL, minTradingDays: 1 });
+    expect(ids(r)).not.toContain('min_days_unset');
+  });
+});
+
 describe('calculatePropFirm — preset output', () => {
   it('emits fields that line up with the presets table columns', () => {
     const r = calculatePropFirm(APEX_50K_EVAL);
