@@ -38,6 +38,7 @@ import authRoutes from './routes/auth';
 import catalogRoutes from './routes/catalog';
 import { attachUser, requireAuth } from './middleware/auth';
 import { cleanupExpiredSessions } from './services/session';
+import { eodFlattenTick } from './services/eodFlatten';
 
 const app = express();
 
@@ -257,6 +258,26 @@ function startCleanupTasks(): void {
       });
     }
   }, 24 * 60 * 60 * 1000);
+
+  // Apex requires accounts flat before 4:59 PM ET and disclaims anything left
+  // open through the close. Ticking every minute rather than scheduling a
+  // single timer means a restart during the afternoon still catches the window.
+  setInterval(async () => {
+    try {
+      const results = await eodFlattenTick();
+      if (results && results.length > 0) {
+        logger.warn('EOD flatten ran', {
+          accounts: results.length,
+          closed: results.reduce((n, r) => n + r.tradesClosed, 0),
+          failed: results.filter((r) => r.error).length,
+        });
+      }
+    } catch (error) {
+      logger.error('EOD flatten tick failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }, 60 * 1000);
 
   // Rule reconciliation: compare each account's preset assumptions against
   // what the broker actually reports. Runs every 15 minutes so a wrong preset

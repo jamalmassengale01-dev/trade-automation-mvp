@@ -31,6 +31,12 @@ export function etParts(date: Date): EtParts {
   return { year: parts.year, month: parts.month, day: parts.day, hour, minute: parts.minute, second: parts.second };
 }
 
+/** Minutes since ET midnight — the unit the session windows are expressed in. */
+export function etMinutesOfDay(date: Date): number {
+  const { hour, minute } = etParts(date);
+  return hour * 60 + minute;
+}
+
 /** Returns which session a timestamp falls in (inclusive of the closing minute), or null. */
 export function getSession(date: Date): Session | null {
   const { hour, minute } = etParts(date);

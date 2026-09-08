@@ -22,6 +22,7 @@ import { broadcaster } from '../services/wsbroadcaster';
 import { getInstrument, rootSymbol } from '../strategy/instruments';
 import { stepRisk, StepMultipliers } from '../strategy/ladder';
 import { contractsFor, splitGroups } from '../strategy/sizing';
+import { resolveScalingTier, ScalingTier } from '../strategy/scaling';
 import { brokerDayKey, getSession, sessionFlagColumn, toDayKey } from '../strategy/sessions';
 import {
   checkGate, checkSniperGate, resetIfNewDay, AccountDayState,
@@ -79,6 +80,7 @@ interface AccountWithPreset extends Record<string, any> {
   p_base_risk: string | number | null;
   p_daily_loss_cap: string | number | null;
   p_max_contracts: number | null;
+  p_scaling_tiers: ScalingTier[] | null;
   p_cap_step: number | null;
   p_max_trades_day: number | null;
   p_step2_mult: string | number | null;
@@ -135,6 +137,7 @@ async function processAccount(
             p.base_risk             AS p_base_risk,
             p.daily_loss_cap        AS p_daily_loss_cap,
             p.max_contracts         AS p_max_contracts,
+            p.scaling_tiers         AS p_scaling_tiers,
             p.cap_step              AS p_cap_step,
             p.max_trades_day        AS p_max_trades_day,
             p.step2_mult            AS p_step2_mult,
@@ -221,21 +224,50 @@ async function processAccount(
   };
   const { state, reset } = resetIfNewDay(before, todayKey);
   if (reset) {
+    // The day roll is also where the PA scaling tier is fixed for the session.
+    // Apex sets it from the prior session's closing balance and holds it — so
+    // the basis is snapshotted here and not re-read while the session runs.
     await query(
       `UPDATE broker_accounts SET last_day_key=$2::date, day_realized_pnl=0, trades_today=0,
-              london_used=false, nyam_used=false, nypm_used=false, day_locked_out=false, updated_at=NOW() WHERE id=$1`,
+              london_used=false, nyam_used=false, nypm_used=false, day_locked_out=false,
+              tier_basis_pnl=cumulative_pnl, updated_at=NOW() WHERE id=$1`,
       [acct.id, todayKey]
     );
+    // Reflect the snapshot locally; the row was read before this update.
+    acct.tier_basis_pnl = Number(acct.cumulative_pnl ?? 0);
   }
 
   // ---- per-account Sniper Mode eligibility ----------------------------
   // Evaluated independently for THIS account from ITS OWN progress toward
   // target — never from anything the signal carries. Two accounts on the
   // same alert can land in different branches here.
+  // ---- PA scaling tier -------------------------------------------------
+  // A funded Apex PA scales BOTH its position limit and its daily loss limit
+  // with account profit; the preset's max_contracts is the ceiling, not the
+  // current allowance. Apex fixes the tier before the session from the prior
+  // session's closing balance and never moves it intraday, so this resolves
+  // from the snapshot taken at the broker-day roll — not live P&L, which would
+  // let size shift while a trade is open.
+  const tier = resolveScalingTier(
+    acct.p_scaling_tiers ?? [],
+    Number(acct.tier_basis_pnl ?? acct.cumulative_pnl ?? 0)
+  );
+  if (tier) {
+    log.debug('PA scaling tier resolved', {
+      accountId: acct.id, level: tier.level,
+      maxContracts: tier.maxContracts, dailyLossCap: tier.dailyLossCap,
+    });
+  }
+
   const preset = {
     baseRisk: Number(acct.p_base_risk),
-    dailyLossCap: Number(acct.p_daily_loss_cap),
-    maxContracts: Number(acct.p_max_contracts ?? 0),
+    // Tier DLL wins where the account scales: a Level 3 50K PA is allowed
+    // $2,000, not the preset's headline $1,000.
+    dailyLossCap: tier?.dailyLossCap ?? Number(acct.p_daily_loss_cap),
+    // Tier cap wins likewise — a fresh PA is 20 micros, not the 40 ceiling.
+    // Sizing past it gets the order rejected by Apex, which costs no penalty
+    // but silently skips the trade.
+    maxContracts: tier?.maxContracts ?? Number(acct.p_max_contracts ?? 0),
     capStep: Number(acct.p_cap_step ?? 4),
     maxTradesPerDay: Number(acct.p_max_trades_day ?? 3),
     multipliers: {

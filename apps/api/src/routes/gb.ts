@@ -40,11 +40,11 @@ const PRESET_FIELDS = [
   'daily_loss_cap', 'base_risk', 'max_contracts', 'dd_mode', 'tp1_r', 'tp2_r',
   'cap_step', 'max_trades_day', 'profit_split', 'step2_mult', 'step3_mult', 'step4_mult',
   'pass_zone_buffer', 'sniper_risk_pct', 'sniper_tp_r', 'sniper_max_trades_day', 'notes',
-  'inactivity_alert_days', 'derived_from',
+  'inactivity_alert_days', 'scaling_tiers', 'derived_from',
 ] as const;
 
 /** Columns the DB expects as JSONB — pg needs these stringified, not passed as objects. */
-const JSON_PRESET_FIELDS = new Set<string>(['derived_from']);
+const JSON_PRESET_FIELDS = new Set<string>(['derived_from', 'scaling_tiers']);
 
 function coercePresetValue(field: string, value: unknown): unknown {
   if (JSON_PRESET_FIELDS.has(field) && value !== null && typeof value === 'object') {
