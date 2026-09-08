@@ -129,6 +129,8 @@ export const api = {
   getCatalog: () => apiClient<{ success: boolean; data: CatalogEntry[] }>('/api/catalog'),
   getCatalogVersions: (id: string) =>
     apiClient<{ success: boolean; data: CatalogVersion[] }>(`/api/catalog/${id}/versions`),
+  getCatalogImpact: (id: string) =>
+    apiClient<{ success: boolean; data: PublishImpact }>(`/api/catalog/${id}/impact`),
   getCatalogDrift: () =>
     apiClient<{ success: boolean; data: CatalogDrift[] }>('/api/catalog/drift'),
   createCatalogEntry: (body: Record<string, unknown>) =>
@@ -248,6 +250,23 @@ export interface CatalogVersion {
   published_by_name: string | null;
   published_at: string;
   effective_from: string | null;
+}
+
+export interface OpenTradeOnEntry {
+  trade_id: string;
+  account_id: string;
+  account_name: string;
+  symbol: string;
+  direction: string;
+  state: string;
+  step_at_entry: number;
+  entry_time: string | null;
+}
+
+export interface PublishImpact {
+  entryId: string;
+  accountsUsing: number;
+  openTrades: OpenTradeOnEntry[];
 }
 
 export interface CatalogDrift {

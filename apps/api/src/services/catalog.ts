@@ -242,6 +242,57 @@ export async function listCatalog(includeUnpublished: boolean) {
   return result.rows;
 }
 
+export interface OpenTradeOnEntry extends Record<string, unknown> {
+  trade_id: string;
+  account_id: string;
+  account_name: string;
+  symbol: string;
+  direction: string;
+  state: string;
+  step_at_entry: number;
+  entry_time: string | null;
+}
+
+export interface PublishImpact {
+  entryId: string;
+  accountsUsing: number;
+  openTrades: OpenTradeOnEntry[];
+}
+
+/**
+ * Who a publish would affect.
+ *
+ * Open trades keep the tp1_r/tp2_r captured onto their gb_trades row at entry,
+ * so a mid-flight trade is not re-priced by a publish. What does change is the
+ * account's NEXT trade — and its ladder step was earned under the old risk
+ * numbers. That is survivable but it is a judgement call, so the caller has to
+ * make it explicitly rather than discover it afterwards.
+ */
+export async function getPublishImpact(entryId: string): Promise<PublishImpact> {
+  const [accounts, trades] = await Promise.all([
+    query<{ count: string }>(
+      'SELECT COUNT(*) AS count FROM broker_accounts WHERE catalog_entry_id = $1',
+      [entryId]
+    ),
+    query<OpenTradeOnEntry>(
+      `SELECT gt.id AS trade_id, ba.id AS account_id, ba.name AS account_name,
+              gt.symbol, gt.direction, gt.state, gt.step_at_entry, gt.entry_time
+       FROM gb_trades gt
+       JOIN broker_accounts ba ON ba.id = gt.broker_account_id
+       WHERE ba.catalog_entry_id = $1
+         AND gt.state NOT IN ('closed', 'failed')
+       ORDER BY ba.name, gt.created_at DESC`,
+      [entryId]
+    ),
+  ]);
+
+  return {
+    entryId,
+    accountsUsing: parseInt(accounts.rows[0]?.count ?? '0', 10),
+    openTrades: trades.rows,
+  };
+}
+
 /** Version history for one entry, newest first. */
 export async function listVersions(entryId: string) {
   const result = await query(

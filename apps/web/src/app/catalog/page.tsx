@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { api, CatalogEntry, CatalogVersion, GbAccount } from '@/lib/api';
+import { api, CatalogEntry, CatalogVersion, GbAccount, PublishImpact } from '@/lib/api';
 import { useAuth } from '@/components/AuthProvider';
 import { Skeleton } from '@/components/Skeleton';
 import { toast } from '@/components/ToastProvider';
@@ -40,6 +40,7 @@ export default function CatalogPage() {
   const [assigning, setAssigning] = useState<string | null>(null);
   const [historyFor, setHistoryFor] = useState<string | null>(null);
   const [versions, setVersions] = useState<CatalogVersion[]>([]);
+  const [publishingFor, setPublishingFor] = useState<CatalogEntry | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -176,6 +177,9 @@ export default function CatalogPage() {
                   )}
                   {isAdmin && (
                     <>
+                      <button onClick={() => setPublishingFor(e)} className="btn btn-secondary text-xs">
+                        New rules
+                      </button>
                       <button onClick={() => openHistory(e.id)} className="btn btn-secondary text-xs">
                         History
                       </button>
@@ -197,6 +201,14 @@ export default function CatalogPage() {
           accounts={accounts}
           onClose={() => setAssigning(null)}
           onDone={async () => { setAssigning(null); await load(); }}
+        />
+      )}
+
+      {publishingFor && (
+        <PublishModal
+          entry={publishingFor}
+          onClose={() => setPublishingFor(null)}
+          onDone={async () => { setPublishingFor(null); await load(); }}
         />
       )}
 
@@ -274,6 +286,181 @@ function AssignModal({
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Publishing new firm rules.
+ *
+ * Shows what the change would touch BEFORE it is composed — how many accounts
+ * run this plan and which have a trade in flight — because discovering that
+ * after the fact is not a choice, it is a surprise. The acknowledgement is
+ * additionally required by the API; this form cannot bypass it.
+ */
+function PublishModal({
+  entry, onClose, onDone,
+}: {
+  entry: CatalogEntry;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [impact, setImpact] = useState<PublishImpact | null>(null);
+  const [form, setForm] = useState({
+    targetProfit: String(entry.target_profit ?? ''),
+    maxDrawdown: String(entry.max_drawdown ?? ''),
+    dailyLossCap: String(entry.daily_loss_cap ?? ''),
+    maxContracts: String(entry.max_contracts ?? ''),
+    changelog: '',
+    effectiveFrom: '',
+  });
+  const [acknowledged, setAcknowledged] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.getCatalogImpact(entry.id)
+      .then((r) => setImpact(r.data))
+      .catch(() => setImpact(null));
+  }, [entry.id]);
+
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const hasOpen = (impact?.openTrades.length ?? 0) > 0;
+  const blocked = hasOpen && !acknowledged;
+
+  async function publish() {
+    if (!form.changelog.trim()) {
+      toast.error('Describe what changed — this is the audit trail');
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await api.publishCatalogVersion(entry.id, {
+        changelog: form.changelog.trim(),
+        effective_from: form.effectiveFrom || null,
+        acknowledge_open_trades: acknowledged,
+        inputs: {
+          startBalance: Number(entry.start_balance),
+          targetProfit: Number(form.targetProfit) || 0,
+          maxDrawdown: Number(form.maxDrawdown) || 0,
+          dailyLossCap: Number(form.dailyLossCap) || 0,
+          maxContracts: Number(form.maxContracts) || 0,
+          ddMode: entry.dd_mode,
+          phase: entry.phase,
+          capStep: entry.cap_step,
+          maxTradesDay: entry.max_trades_day,
+          tp1R: Number(entry.tp1_r),
+          tp2R: Number(entry.tp2_r),
+          profitSplit: Number(entry.profit_split),
+        },
+      });
+      const changed = res.data.changedFields;
+      toast.success(
+        changed.length > 0
+          ? `Published v${res.data.version} — changed: ${changed.join(', ')}`
+          : `Published v${res.data.version} — no values changed, re-confirmed as current`
+      );
+      onDone();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to publish');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      <div className="bg-terminal-surface border border-terminal-border rounded-xl w-full max-w-lg p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+        <div>
+          <h2 className="text-lg font-bold text-terminal-text">New rules — {entry.display_name}</h2>
+          <p className="text-xs text-terminal-muted mt-1">
+            Publishing recomputes risk sizing from these numbers and records who changed them.
+            Currently v{entry.current_version}.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <L label="Profit target"><I value={form.targetProfit} onChange={set('targetProfit')} /></L>
+          <L label="Max drawdown"><I value={form.maxDrawdown} onChange={set('maxDrawdown')} /></L>
+          <L label="Daily loss limit"><I value={form.dailyLossCap} onChange={set('dailyLossCap')} /></L>
+          <L label="Max contracts"><I value={form.maxContracts} onChange={set('maxContracts')} /></L>
+        </div>
+
+        <L label="What changed" hint="Recorded permanently in the plan's history">
+          <I value={form.changelog} onChange={set('changelog')}
+             placeholder="Apex cut the 50K daily loss limit to $625" />
+        </L>
+        <L label="Effective from" hint="Optional — when the firm's change took effect">
+          <input type="date" value={form.effectiveFrom} onChange={set('effectiveFrom')}
+            className="w-full px-2.5 py-1.5 text-sm font-mono bg-terminal-panel border border-terminal-border rounded text-terminal-text focus:outline-none focus:border-terminal-buy" />
+        </L>
+
+        {impact && (
+          <div className={`border rounded-lg px-4 py-3 ${hasOpen ? 'border-yellow-500/40 bg-yellow-500/10' : 'border-terminal-border bg-terminal-panel'}`}>
+            <p className="text-xs text-terminal-text">
+              <span className="font-semibold">{impact.accountsUsing}</span> account(s) run this plan.
+              {hasOpen
+                ? ` ${impact.openTrades.length} have a trade in flight right now.`
+                : ' None have an open trade.'}
+            </p>
+            {hasOpen && (
+              <>
+                <ul className="mt-2 space-y-1">
+                  {impact.openTrades.map((t) => (
+                    <li key={t.trade_id} className="text-[11px] text-terminal-muted font-mono">
+                      {t.account_name} · {t.direction} {t.symbol} · {t.state} · step {t.step_at_entry}
+                    </li>
+                  ))}
+                </ul>
+                <label className="flex items-start gap-2 mt-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={acknowledged}
+                    onChange={(e) => setAcknowledged(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span className="text-[11px] text-terminal-text">
+                    I understand these trades keep their own exit levels, but each account&apos;s
+                    <strong> next</strong> trade will size from the new numbers while carrying a
+                    ladder step earned under the old ones.
+                  </span>
+                </label>
+              </>
+            )}
+          </div>
+        )}
+
+        <div className="flex gap-2">
+          <button onClick={onClose} className="btn btn-secondary text-sm flex-1">Cancel</button>
+          <button
+            onClick={publish}
+            disabled={busy || blocked}
+            className="btn btn-primary text-sm flex-1 disabled:opacity-40"
+          >
+            {busy ? 'Publishing…' : blocked ? 'Acknowledge to continue' : `Publish v${entry.current_version + 1}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function L({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1">
+      <label className="text-xs font-medium text-terminal-muted">{label}</label>
+      {children}
+      {hint && <p className="text-[10px] text-terminal-muted">{hint}</p>}
+    </div>
+  );
+}
+
+function I(props: React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <input
+      {...props}
+      className="w-full px-2.5 py-1.5 text-sm font-mono bg-terminal-panel border border-terminal-border rounded text-terminal-text focus:outline-none focus:border-terminal-buy"
+    />
   );
 }
 

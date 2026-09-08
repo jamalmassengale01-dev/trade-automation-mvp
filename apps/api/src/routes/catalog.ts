@@ -12,7 +12,7 @@ import { query } from '../db';
 import { requireAdmin } from '../middleware/auth';
 import { ownsRow } from '../middleware/ownership';
 import {
-  listCatalog, listVersions, listDriftedAccounts,
+  listCatalog, listVersions, listDriftedAccounts, getPublishImpact,
   publishVersion, assignCatalogEntry, VERSIONED_PRESET_FIELDS, PresetValues,
 } from '../services/catalog';
 import { calculatePropFirm, toDerivedFrom, PropFirmInputs } from '../strategy/propFirmMath';
@@ -209,6 +209,21 @@ router.patch('/:id', requireAdmin, async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/catalog/:id/impact
+ * What publishing new numbers for this entry would touch: how many accounts
+ * run it, and which have a trade in flight right now. Read-only preflight so
+ * the decision is visible before the change is composed, not after it lands.
+ */
+router.get('/:id/impact', requireAdmin, async (req: Request, res: Response) => {
+  try {
+    res.json({ success: true, data: await getPublishImpact(req.params.id) });
+  } catch (error) {
+    log.error('Failed to load publish impact', { error: error instanceof Error ? error.message : String(error) });
+    res.status(500).json({ success: false, error: 'Failed to load publish impact' });
+  }
+});
+
+/**
  * POST /api/catalog/:id/versions
  * Publish new numbers for an entry. Accepts either raw calculator `inputs`
  * (preferred — keeps the derivation on record) or explicit `preset_values`.
@@ -232,6 +247,25 @@ router.post('/:id/versions', requireAdmin, async (req: Request, res: Response) =
       return;
     }
 
+    // Trades already in flight keep the tp1_r/tp2_r captured onto their row at
+    // entry, so they are not re-priced. What changes is each account's NEXT
+    // trade, sized from new risk numbers while carrying a ladder step earned
+    // under the old ones. Survivable, but a judgement call — so it is refused
+    // until the caller says so explicitly. Enforced here rather than in the UI:
+    // a confirmation the API does not require is decoration.
+    const impact = await getPublishImpact(req.params.id);
+    if (impact.openTrades.length > 0 && b.acknowledge_open_trades !== true) {
+      res.status(409).json({
+        success: false,
+        error:
+          `${impact.openTrades.length} trade(s) are open on accounts running this plan. ` +
+          `Open trades keep their own exit levels, but each account's next trade will use the ` +
+          `new numbers. Re-send with acknowledge_open_trades to proceed.`,
+        data: { requiresAcknowledgement: true, impact },
+      });
+      return;
+    }
+
     const result = await publishVersion({
       entryId: req.params.id,
       presetValues,
@@ -252,7 +286,17 @@ router.post('/:id/versions', requireAdmin, async (req: Request, res: Response) =
       [result.presetId, req.user?.email ?? 'admin']
     );
 
-    res.status(201).json({ success: true, data: { ...result, findings } });
+    if (impact.openTrades.length > 0) {
+      log.warn('Version published while trades were in flight', {
+        entryId: req.params.id, version: result.version,
+        openTrades: impact.openTrades.length, by: req.user?.id,
+      });
+    }
+
+    res.status(201).json({
+      success: true,
+      data: { ...result, findings, publishedWithOpenTrades: impact.openTrades.length },
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     log.error('Failed to publish version', { id: req.params.id, error: message });
