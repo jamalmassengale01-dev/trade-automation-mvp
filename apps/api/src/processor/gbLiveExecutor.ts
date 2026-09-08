@@ -80,6 +80,7 @@ interface AccountWithPreset extends Record<string, any> {
   p_base_risk: string | number | null;
   p_daily_loss_cap: string | number | null;
   p_max_contracts: number | null;
+  p_dll_buffer_pct: string | number | null;
   p_scaling_tiers: ScalingTier[] | null;
   p_cap_step: number | null;
   p_max_trades_day: number | null;
@@ -137,6 +138,7 @@ async function processAccount(
             p.base_risk             AS p_base_risk,
             p.daily_loss_cap        AS p_daily_loss_cap,
             p.max_contracts         AS p_max_contracts,
+            p.dll_buffer_pct        AS p_dll_buffer_pct,
             p.scaling_tiers         AS p_scaling_tiers,
             p.cap_step              AS p_cap_step,
             p.max_trades_day        AS p_max_trades_day,
@@ -270,6 +272,7 @@ async function processAccount(
     maxContracts: tier?.maxContracts ?? Number(acct.p_max_contracts ?? 0),
     capStep: Number(acct.p_cap_step ?? 4),
     maxTradesPerDay: Number(acct.p_max_trades_day ?? 3),
+    dllBufferPct: Number(acct.p_dll_buffer_pct ?? 0),
     multipliers: {
       step2: Number(acct.p_step2_mult ?? 1),
       step3: Number(acct.p_step3_mult ?? 2),

@@ -15,6 +15,8 @@ export interface AccountDayState {
 export interface GatePreset {
   dailyLossCap: number;
   maxTradesPerDay?: number;
+  /** Percent of the daily loss cap held back for commissions and slippage. */
+  dllBufferPct?: number;
 }
 
 export type GateReason =
@@ -57,9 +59,33 @@ export function sessionUsed(state: AccountDayState, session: Session): boolean {
   return session === 'london' ? state.londonUsed : session === 'nyam' ? state.nyamUsed : state.nypmUsed;
 }
 
-/** Remaining room before the daily loss cap is hit. */
-export function dllHeadroom(dailyLossCap: number, dayRealizedPnl: number): number {
-  return Number((dailyLossCap + dayRealizedPnl).toFixed(2));
+/**
+ * Remaining room before the daily loss cap is hit.
+ *
+ * `bufferPct` shaves a margin off the cap before the comparison. The firm
+ * measures its daily loss limit on total equity INCLUDING unrealized, while
+ * this figure is realized-only — which is almost equivalent here, because the
+ * account holds one trade at a time and that trade's worst case is bounded by
+ * the step risk the gate just approved. What the model does not count is
+ * commissions and slippage: a stop is a price, not a promise, so actual loss
+ * runs slightly above planned loss.
+ *
+ * Without a buffer the margin for that is exactly zero, and the cost of
+ * overshooting is that the FIRM flattens the account at market instead of the
+ * stop filling where it was placed.
+ *
+ * Sizing note for the Apex 50K ladder: buffers up to ~$336 decline no trade
+ * that currently happens, because step 3 ($668) is already unreachable once
+ * two losses have consumed the day. 10% ($100) is comfortably inside that.
+ */
+export function dllHeadroom(
+  dailyLossCap: number,
+  dayRealizedPnl: number,
+  bufferPct = 0
+): number {
+  const pct = Math.min(Math.max(bufferPct, 0), 100);
+  const effectiveCap = dailyLossCap * (1 - pct / 100);
+  return Number((effectiveCap + dayRealizedPnl).toFixed(2));
 }
 
 /**
@@ -88,13 +114,16 @@ export function checkGate(input: {
   if (state.tradesToday >= maxTrades) {
     return { allowed: false, reason: 'max_trades_day', message: `Max ${maxTrades} trades/day reached`, details: { tradesToday: state.tradesToday } };
   }
-  const room = dllHeadroom(preset.dailyLossCap, state.dayRealizedPnl);
+  const room = dllHeadroom(preset.dailyLossCap, state.dayRealizedPnl, preset.dllBufferPct ?? 0);
   if (stepRisk > room) {
     return {
       allowed: false,
       reason: 'dll_headroom',
       message: `Step risk $${stepRisk} exceeds remaining DLL room $${room}`,
-      details: { stepRisk, room, dayRealizedPnl: state.dayRealizedPnl, dailyLossCap: preset.dailyLossCap },
+      details: {
+        stepRisk, room, dayRealizedPnl: state.dayRealizedPnl,
+        dailyLossCap: preset.dailyLossCap, bufferPct: preset.dllBufferPct ?? 0,
+      },
     };
   }
   return { allowed: true };

@@ -4,6 +4,7 @@ import { dllHeadroom } from '../strategy/gate';
 import { bracketManager } from '../strategy/bracketManager';
 import { calculatePropFirm, toDerivedFrom, PropFirmInputs } from '../strategy/propFirmMath';
 import { reconcileAllAccounts, reconcileAccountRules } from '../services/ruleReconciliation';
+import { listPayoutStatus, getAccountPayoutStatus, requestPayout, settlePayout } from '../services/launchpad';
 import { requireAdmin } from '../middleware/auth';
 import { ownsRow, scopeClause } from '../middleware/ownership';
 import config from '../config';
@@ -40,7 +41,7 @@ const PRESET_FIELDS = [
   'daily_loss_cap', 'base_risk', 'max_contracts', 'dd_mode', 'tp1_r', 'tp2_r',
   'cap_step', 'max_trades_day', 'profit_split', 'step2_mult', 'step3_mult', 'step4_mult',
   'pass_zone_buffer', 'sniper_risk_pct', 'sniper_tp_r', 'sniper_max_trades_day', 'notes',
-  'inactivity_alert_days', 'scaling_tiers', 'derived_from',
+  'inactivity_alert_days', 'dll_buffer_pct', 'scaling_tiers', 'derived_from',
 ] as const;
 
 /** Columns the DB expects as JSONB — pg needs these stringified, not passed as objects. */
@@ -74,7 +75,7 @@ function validatePresetInput(body: PresetInput, opts: { requireCore: boolean }):
   const numericFields = [
     'start_balance', 'target_profit', 'max_drawdown', 'daily_loss_cap', 'base_risk', 'max_contracts',
     'tp1_r', 'tp2_r', 'cap_step', 'max_trades_day', 'profit_split', 'step2_mult', 'step3_mult', 'step4_mult',
-    'pass_zone_buffer', 'sniper_risk_pct', 'sniper_tp_r', 'sniper_max_trades_day', 'inactivity_alert_days',
+    'pass_zone_buffer', 'sniper_risk_pct', 'sniper_tp_r', 'sniper_max_trades_day', 'inactivity_alert_days', 'dll_buffer_pct',
   ] as const;
   for (const f of numericFields) {
     if (body[f] !== undefined && body[f] !== null && (typeof body[f] !== 'number' || !Number.isFinite(body[f] as number))) {
@@ -525,6 +526,74 @@ router.get('/reconciliation', requireAdmin, async (_req: Request, res: Response)
   } catch (error) {
     routeLogger.error('Failed to list reconciliation', { error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({ success: false, error: 'Failed to list reconciliation' });
+  }
+});
+
+/**
+ * GET /api/gb/launchpad
+ * Payout status for every account the caller can see: qualifying days banked,
+ * consistency, balance against the request threshold, and what is blocking.
+ */
+router.get('/launchpad', async (req: Request, res: Response) => {
+  try {
+    const scope = scopeClause(req, 'ba', 1);
+    res.json({ success: true, data: await listPayoutStatus(scope.clause, scope.params) });
+  } catch (error) {
+    routeLogger.error('Failed to load launchpad', { error: error instanceof Error ? error.message : String(error) });
+    res.status(500).json({ success: false, error: 'Failed to load launchpad' });
+  }
+});
+
+/** GET /api/gb/launchpad/:accountId — one account, ownership-guarded. */
+router.get('/launchpad/:accountId', async (req: Request, res: Response) => {
+  try {
+    const status = await getAccountPayoutStatus(req.params.accountId);
+    if (!status) {
+      res.status(404).json({ success: false, error: 'Account not found' });
+      return;
+    }
+    res.json({ success: true, data: status });
+  } catch (error) {
+    routeLogger.error('Failed to load account launchpad', { error: error instanceof Error ? error.message : String(error) });
+    res.status(500).json({ success: false, error: 'Failed to load account launchpad' });
+  }
+});
+
+/**
+ * POST /api/gb/launchpad/:accountId/payout
+ * Record a payout request. Eligibility is re-checked server-side — the
+ * client's view can be minutes stale, and a request logged against an
+ * ineligible account corrupts the payout numbering for the rest of the cycle.
+ */
+router.post('/launchpad/:accountId/payout', async (req: Request, res: Response) => {
+  try {
+    const amount = req.body?.amount !== undefined ? Number(req.body.amount) : undefined;
+    if (amount !== undefined && !Number.isFinite(amount)) {
+      res.status(400).json({ success: false, error: 'amount must be a number' });
+      return;
+    }
+    const result = await requestPayout(req.params.accountId, amount);
+    res.status(201).json({ success: true, data: result });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    routeLogger.warn('Payout request refused', { accountId: req.params.accountId, error: message });
+    res.status(400).json({ success: false, error: message });
+  }
+});
+
+/** POST /api/gb/payouts/:id/settle — record the firm's decision. */
+router.post('/payouts/:id/settle', requireAdmin, async (req: Request, res: Response) => {
+  const status = req.body?.status;
+  if (status !== 'approved' && status !== 'denied') {
+    res.status(400).json({ success: false, error: "status must be 'approved' or 'denied'" });
+    return;
+  }
+  try {
+    await settlePayout(req.params.id, status, req.body?.notes);
+    res.json({ success: true, message: `Payout ${status}` });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(400).json({ success: false, error: message });
   }
 });
 

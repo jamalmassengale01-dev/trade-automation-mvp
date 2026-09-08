@@ -125,6 +125,15 @@ export const api = {
     apiClient<{ success: boolean; data: GbPreset }>(`/api/gb/presets/${id}`, { method: 'PATCH', body }),
   deleteGbPreset: (id: string) =>
     apiClient<{ success: boolean; message: string }>(`/api/gb/presets/${id}`, { method: 'DELETE' }),
+  // LaunchPad
+  getLaunchpad: () => apiClient<{ success: boolean; data: AccountPayoutStatus[] }>('/api/gb/launchpad'),
+  requestPayout: (accountId: string, amount?: number) =>
+    apiClient<{ success: boolean; data: { payoutNumber: number; amount: number } }>(
+      `/api/gb/launchpad/${accountId}/payout`, { method: 'POST', body: { amount } }),
+  settlePayout: (payoutId: string, status: 'approved' | 'denied', notes?: string) =>
+    apiClient<{ success: boolean; message: string }>(
+      `/api/gb/payouts/${payoutId}/settle`, { method: 'POST', body: { status, notes } }),
+
   // Catalog
   getCatalog: () => apiClient<{ success: boolean; data: CatalogEntry[] }>('/api/catalog'),
   getCatalogVersions: (id: string) =>
@@ -210,6 +219,47 @@ export interface CopierMapping {
 // ============================================
 // GB LIVE / LAUNCHPAD TYPES
 // ============================================
+
+export interface ConsistencyStatus {
+  largestDay: number;
+  totalProfit: number;
+  ratio: number | null;
+  ok: boolean;
+  minTotalRequired: number;
+  shortfall: number;
+}
+
+export interface PayoutBlocker {
+  reason: 'insufficient_qualifying_days' | 'below_safety_net' | 'consistency' | 'all_payouts_taken';
+  message: string;
+  shortfall?: number;
+}
+
+export interface PayoutEligibility {
+  eligible: boolean;
+  payoutNumber: number | null;
+  scheduledAmount: number | null;
+  requestableAmount: number;
+  qualifyingDayCount: number;
+  daysStillNeeded: number;
+  consistency: ConsistencyStatus;
+  blockers: PayoutBlocker[];
+  isFinalPayout: boolean;
+}
+
+export interface AccountPayoutStatus {
+  accountId: string;
+  accountName: string;
+  presetId: string | null;
+  phase: 'eval' | 'funded' | null;
+  currentBalance: number;
+  profitSinceLastPayout: number;
+  payoutsTaken: number;
+  totalExtracted: number;
+  lastPayoutAt: string | null;
+  eligibility: PayoutEligibility | null;
+  unavailableReason?: string;
+}
 
 export interface CatalogEntry {
   id: string;

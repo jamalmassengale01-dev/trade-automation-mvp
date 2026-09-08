@@ -43,6 +43,8 @@ async function migrate() {
   const catalogPath = path.join(__dirname, 'schema_catalog.sql');
   const gbLiveV7Path = path.join(__dirname, 'schema_gblive_v7.sql');
   const gbLiveV8Path = path.join(__dirname, 'schema_gblive_v8.sql');
+  const gbLiveV9Path = path.join(__dirname, 'schema_gblive_v9.sql');
+  const launchpadPath = path.join(__dirname, 'schema_launchpad.sql');
   try {
     await runSqlFile(schemaPath, 'schema.sql');
     await runSqlFile(hardeningPath, 'schema_hardening.sql');
@@ -54,6 +56,8 @@ async function migrate() {
     await runSqlFile(catalogPath, 'schema_catalog.sql');
     await runSqlFile(gbLiveV7Path, 'schema_gblive_v7.sql');
     await runSqlFile(gbLiveV8Path, 'schema_gblive_v8.sql');
+    await runSqlFile(gbLiveV9Path, 'schema_gblive_v9.sql');
+    await runSqlFile(launchpadPath, 'schema_launchpad.sql');
     migrationLogger.info('Database migration completed successfully');
   } catch (error) {
     migrationLogger.error('Migration failed', { error: error instanceof Error ? error.message : String(error) });
