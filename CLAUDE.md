@@ -761,6 +761,7 @@ trade-automation-mvp/
 │   │       │   ├── sizing.ts          ← contracts, groups, TP/SL/BE levels
 │   │       │   ├── sessions.ts        ← ET session windows, 6PM broker day key
 │   │       │   ├── gate.ts            ← session / 3-per-day / DLL headroom
+│   │       │   ├── propFirmMath.ts    ← firm rules → derived preset + feasibility findings
 │   │       │   └── bracketManager.ts  ← entry → fill → OCO → BE → close
 │   │       ├── processor/
 │   │       │   ├── alertProcessorHardened.ts

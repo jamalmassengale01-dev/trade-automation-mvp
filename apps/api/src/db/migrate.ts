@@ -37,11 +37,13 @@ async function migrate() {
   const hardeningPath = path.join(__dirname, 'schema_hardening.sql');
   const gbLivePath = path.join(__dirname, 'schema_gblive.sql');
   const gbLiveV2Path = path.join(__dirname, 'schema_gblive_v2.sql');
+  const gbLiveV3Path = path.join(__dirname, 'schema_gblive_v3.sql');
   try {
     await runSqlFile(schemaPath, 'schema.sql');
     await runSqlFile(hardeningPath, 'schema_hardening.sql');
     await runSqlFile(gbLivePath, 'schema_gblive.sql');
     await runSqlFile(gbLiveV2Path, 'schema_gblive_v2.sql');
+    await runSqlFile(gbLiveV3Path, 'schema_gblive_v3.sql');
     migrationLogger.info('Database migration completed successfully');
   } catch (error) {
     migrationLogger.error('Migration failed', { error: error instanceof Error ? error.message : String(error) });

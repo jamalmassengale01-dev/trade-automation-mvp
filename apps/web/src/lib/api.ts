@@ -101,6 +101,8 @@ export const api = {
     apiClient<{ success: boolean; data: GbPreset }>(`/api/gb/presets/${id}`, { method: 'PATCH', body }),
   deleteGbPreset: (id: string) =>
     apiClient<{ success: boolean; message: string }>(`/api/gb/presets/${id}`, { method: 'DELETE' }),
+  calculatePropFirm: (body: PropFirmInputs) =>
+    apiClient<{ success: boolean; data: PropFirmCalcResult }>('/api/gb/presets/calculate', { method: 'POST', body }),
   getGbTrades: (page = 1, pageSize = 20) =>
     apiClient<{ success: boolean; data: { items: GbTrade[]; total: number; page: number; pageSize: number; totalPages: number } }>(`/api/gb/trades?page=${page}&pageSize=${pageSize}`),
   getGbAccountTrades: (accountId: string, page = 1, pageSize = 20) =>
@@ -158,6 +160,93 @@ export interface CopierMapping {
 // ============================================
 // GB LIVE / LAUNCHPAD TYPES
 // ============================================
+
+// ---- Prop firm calculator ----
+
+export interface PropFirmInputs {
+  startBalance: number;
+  targetProfit: number;
+  maxDrawdown: number;
+  dailyLossCap: number;
+  ddMode: string;
+  phase: 'eval' | 'funded';
+  maxContracts: number;
+  minTradingDays?: number;
+  consistencyPct?: number;
+  minPayout?: number;
+  safetyNetBuffer?: number;
+  profitSplit?: number;
+  riskDivisor?: number;
+  riskRounding?: 'ceil' | 'floor' | 'nearest';
+  baseRiskOverride?: number;
+  stepMultipliers?: { step2: number; step3: number; step4: number };
+  capStep?: number;
+  maxTradesDay?: number;
+  tp1R?: number;
+  tp2R?: number;
+  symbol?: string;
+  typicalStopPts?: number;
+  assumedWinRate?: number;
+  tradesPerDay?: number;
+}
+
+export interface LadderRung {
+  step: number;
+  multiplier: number;
+  nominalRisk: number;
+  contracts: number;
+  uncappedContracts: number;
+  actualRisk: number;
+  reachableSameDay: boolean;
+  dllRoomBefore: number;
+  contractCapBinds: boolean;
+}
+
+export interface ProjectionRow {
+  winRate: number;
+  expectancyR: number;
+  expectedPerTrade: number;
+  expectedPerDay: number;
+  daysToTarget: number | null;
+}
+
+export interface PropFirmFinding {
+  id: string;
+  severity: 'error' | 'warning' | 'info';
+  message: string;
+}
+
+export interface PropFirmCalcResult {
+  rules: {
+    baseRisk: number;
+    fullLadderNominalRisk: number;
+    maxReachableStep: number;
+    worstCaseDayLoss: number;
+    survivableMaxLossDays: number;
+    ladder: LadderRung[];
+    safetyNetBalance: number | null;
+    minBalanceForPayout: number | null;
+    targetBalance: number;
+    maxCompliantDayAtTarget: number | null;
+    consistencyCurve: Array<{ dayPnl: number; minTotalProfit: number }> | null;
+    avgWinR: number;
+    partialWinR: number;
+    breakevenWinRate: number;
+    instrument: { root: string; name: string; tickSize: number; pointValue: number };
+    typicalStopPts: number;
+  };
+  projections: {
+    assumedWinRate: number;
+    tradesPerDay: number;
+    base: ProjectionRow;
+    sensitivity: ProjectionRow[];
+    bindingDaysToPass: number | null;
+    caveat: string;
+  };
+  findings: PropFirmFinding[];
+  preset: Record<string, string | number>;
+  derived_from: Record<string, unknown>;
+}
 
 export interface GbPreset {
   id: string;

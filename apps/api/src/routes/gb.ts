@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { query } from '../db';
 import { dllHeadroom } from '../strategy/gate';
 import { bracketManager } from '../strategy/bracketManager';
+import { calculatePropFirm, toDerivedFrom, PropFirmInputs } from '../strategy/propFirmMath';
 import config from '../config';
 import logger from '../utils/logger';
 
@@ -30,7 +31,18 @@ const PRESET_FIELDS = [
   'daily_loss_cap', 'base_risk', 'max_contracts', 'dd_mode', 'tp1_r', 'tp2_r',
   'cap_step', 'max_trades_day', 'profit_split', 'step2_mult', 'step3_mult', 'step4_mult',
   'pass_zone_buffer', 'sniper_risk_pct', 'sniper_tp_r', 'sniper_max_trades_day', 'notes',
+  'derived_from',
 ] as const;
+
+/** Columns the DB expects as JSONB — pg needs these stringified, not passed as objects. */
+const JSON_PRESET_FIELDS = new Set<string>(['derived_from']);
+
+function coercePresetValue(field: string, value: unknown): unknown {
+  if (JSON_PRESET_FIELDS.has(field) && value !== null && typeof value === 'object') {
+    return JSON.stringify(value);
+  }
+  return value;
+}
 
 type PresetInput = Partial<Record<(typeof PRESET_FIELDS)[number], unknown>>;
 
@@ -64,6 +76,49 @@ function validatePresetInput(body: PresetInput, opts: { requireCore: boolean }):
 }
 
 /**
+ * POST /api/gb/presets/calculate
+ * Prop firm math calculator. Takes the raw numbers off a firm's rulebook page
+ * and derives every preset field, plus the feasibility findings that are
+ * invisible when a preset is hand-entered (unreachable ladder steps, a contract
+ * cap that silently truncates risk, a drawdown that only absorbs one bad day).
+ *
+ * Pure preview — saves nothing. The client reviews the result, then POSTs to
+ * /api/gb/presets with `preset` + `derived_from` to persist it.
+ *
+ * Declared BEFORE /presets/:id so 'calculate' is never read as a preset id.
+ */
+router.post('/presets/calculate', async (req: Request, res: Response) => {
+  try {
+    const result = calculatePropFirm(req.body as PropFirmInputs);
+    res.json({
+      success: true,
+      data: {
+        rules: {
+          ...result.rules,
+          // Drop the closure — expose the consistency curve as data instead.
+          minTotalProfitForDay: undefined,
+          consistencyCurve: result.rules.minTotalProfitForDay
+            ? [250, 500, 750, 1000, 1500].map((dayPnl) => ({
+                dayPnl,
+                minTotalProfit: result.rules.minTotalProfitForDay!(dayPnl),
+              }))
+            : null,
+        },
+        projections: result.projections,
+        findings: result.findings,
+        preset: result.preset,
+        derived_from: toDerivedFrom(result),
+      },
+    });
+  } catch (error) {
+    // Calculator throws only on inputs that make the math meaningless.
+    const message = error instanceof Error ? error.message : String(error);
+    routeLogger.warn('Preset calculation rejected', { error: message });
+    res.status(400).json({ success: false, error: message });
+  }
+});
+
+/**
  * POST /api/gb/presets
  * Create a new prop-firm preset. This is the mechanism for adding a new
  * strategy variant or account-size config without a code change — every
@@ -84,7 +139,7 @@ router.post('/presets', async (req: Request, res: Response) => {
     }
     const cols = PRESET_FIELDS.filter((f) => body[f] !== undefined);
     const placeholders = cols.map((_, i) => `$${i + 1}`);
-    const values = cols.map((f) => body[f]);
+    const values = cols.map((f) => coercePresetValue(f, body[f]));
     const result = await query(
       `INSERT INTO presets (${cols.join(', ')}) VALUES (${placeholders.join(', ')}) RETURNING *`,
       values
@@ -135,7 +190,7 @@ router.patch('/presets/:id', async (req: Request, res: Response) => {
   }
   try {
     const sets = cols.map((f, i) => `${f} = $${i + 1}`);
-    const values = cols.map((f) => rest[f]);
+    const values: unknown[] = cols.map((f) => coercePresetValue(f, rest[f]));
     values.push(req.params.id);
     const result = await query(`UPDATE presets SET ${sets.join(', ')} WHERE id = $${values.length} RETURNING *`, values);
     if (result.rowCount === 0) {

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import Link from 'next/link';
 import { api, GbPreset } from '@/lib/api';
 import { Skeleton } from '@/components/Skeleton';
 import { toast } from '@/components/ToastProvider';
@@ -199,7 +200,10 @@ export default function PresetsPage() {
             Every risk, ladder, and Sniper Mode parameter the execution engine uses. Edit here — no code changes, no redeploy, and nothing to change in TradingView.
           </p>
         </div>
-        <button onClick={openNew} className="btn btn-primary text-sm shrink-0">+ New Preset</button>
+        <div className="flex items-center gap-2 shrink-0">
+          <Link href="/calculator" className="btn btn-secondary text-sm">🧮 Calculate from firm rules</Link>
+          <button onClick={openNew} className="btn btn-primary text-sm">+ New Preset</button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">

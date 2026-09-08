@@ -10,6 +10,7 @@ const navItems = [
   { href: '/', label: 'Dashboard', icon: '📊' },
   { href: '/fleet', label: 'Fleet', icon: '🚀' },
   { href: '/presets', label: 'Presets', icon: '🎛️' },
+  { href: '/calculator', label: 'Calculator', icon: '🧮' },
   { href: '/strategies', label: 'Strategies', icon: '⚡' },
   { href: '/accounts', label: 'Accounts', icon: '💳' },
   { href: '/alerts', label: 'Alerts', icon: '🔔' },
