@@ -125,6 +125,15 @@ export const api = {
     apiClient<{ success: boolean; data: GbPreset }>(`/api/gb/presets/${id}`, { method: 'PATCH', body }),
   deleteGbPreset: (id: string) =>
     apiClient<{ success: boolean; message: string }>(`/api/gb/presets/${id}`, { method: 'DELETE' }),
+  // Evals
+  getEvals: () => apiClient<{ success: boolean; data: EvalOverview }>('/api/gb/evals'),
+  createEval: (body: Record<string, unknown>) =>
+    apiClient<{ success: boolean; data: { id: string; expiresOn: string | null } }>(
+      '/api/gb/evals', { method: 'POST', body }),
+  refreshEvals: () =>
+    apiClient<{ success: boolean; data: { transitions: number } }>(
+      '/api/gb/evals/refresh', { method: 'POST' }),
+
   // LaunchPad
   getLaunchpad: () => apiClient<{ success: boolean; data: AccountPayoutStatus[] }>('/api/gb/launchpad'),
   requestPayout: (accountId: string, amount?: number) =>
@@ -219,6 +228,48 @@ export interface CopierMapping {
 // ============================================
 // GB LIVE / LAUNCHPAD TYPES
 // ============================================
+
+export interface EvalAssessment {
+  outcome: 'in_progress' | 'passed' | 'blown' | 'expired';
+  changed: boolean;
+  reason?: string;
+  profit: number;
+  progressPct: number;
+  daysRemaining: number | null;
+  daysElapsed: number;
+  ratePerTradingDay: number;
+  tradingDaysObserved: number;
+  daysToTargetAtRate: number | null;
+  projectionRange: { fast: number; slow: number } | null;
+  onTrack: boolean | null;
+  projectionBlockedBy: 'insufficient_sample' | 'no_progress' | null;
+  daysToActivationDeadline: number | null;
+  urgency: 'ok' | 'watch' | 'critical' | 'lapsed';
+  notes: string[];
+}
+
+export interface TrackedEval {
+  id: string;
+  accountId: string | null;
+  accountName: string | null;
+  propFirm: string;
+  accountSize: number;
+  purchaseDate: string;
+  expiresOn: string | null;
+  evalCost: number;
+  activationCost: number;
+  currentBalance: number;
+  assessment: EvalAssessment;
+}
+
+export interface EvalOverview {
+  evals: TrackedEval[];
+  staggerWarnings: string[];
+  totals: {
+    inProgress: number; passed: number; blown: number; expired: number;
+    spent: number; offPace: number; activationUrgent: number;
+  };
+}
 
 export interface ConsistencyStatus {
   largestDay: number;

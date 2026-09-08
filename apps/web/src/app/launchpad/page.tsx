@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { api, AccountPayoutStatus, PayoutBlocker } from '@/lib/api';
+import { api, AccountPayoutStatus, PayoutBlocker, EvalOverview, TrackedEval } from '@/lib/api';
 import { Skeleton } from '@/components/Skeleton';
 import { toast } from '@/components/ToastProvider';
 
@@ -29,14 +29,16 @@ const BLOCKER_LABEL: Record<PayoutBlocker['reason'], string> = {
 
 export default function LaunchpadPage() {
   const [rows, setRows] = useState<AccountPayoutStatus[]>([]);
+  const [evals, setEvals] = useState<EvalOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const res = await api.getLaunchpad();
-      setRows(res.data);
+      const [lp, ev] = await Promise.all([api.getLaunchpad(), api.getEvals()]);
+      setRows(lp.data);
+      setEvals(ev.data);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load LaunchPad');
@@ -95,6 +97,31 @@ export default function LaunchpadPage() {
           the safety net, and consistency — independently, all at once.
         </p>
       </div>
+
+      {/* ---- evaluations ---- */}
+      {evals && evals.evals.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-terminal-text uppercase tracking-wider">
+              Evaluations
+            </h2>
+            <span className="text-xs text-terminal-muted">
+              {evals.totals.inProgress} running · {evals.totals.offPace} off pace ·{' '}
+              {money(evals.totals.spent)} spent
+            </span>
+          </div>
+
+          {evals.staggerWarnings.map((w, i) => (
+            <div key={i} className="border border-yellow-500/40 bg-yellow-500/10 rounded-lg px-4 py-2">
+              <p className="text-xs text-terminal-text">{w}</p>
+            </div>
+          ))}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {evals.evals.map((e) => <EvalCard key={e.id} ev={e} />)}
+          </div>
+        </div>
+      )}
 
       {/* ---- fleet summary ---- */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -219,6 +246,84 @@ export default function LaunchpadPage() {
         manual step on their dashboard — mark it approved once they rule on it, which starts the
         next cycle and resets the qualifying-day count.
       </p>
+    </div>
+  );
+}
+
+const URGENCY: Record<TrackedEval['assessment']['urgency'], string> = {
+  ok: 'border-terminal-border',
+  watch: 'border-yellow-500/40',
+  critical: 'border-terminal-sell/50',
+  lapsed: 'border-terminal-border opacity-60',
+};
+
+const OUTCOME_BADGE: Record<TrackedEval['assessment']['outcome'], string> = {
+  in_progress: 'bg-terminal-panel text-terminal-muted',
+  passed: 'bg-terminal-buy/15 text-terminal-buy',
+  blown: 'bg-terminal-sell/15 text-terminal-sell',
+  expired: 'bg-terminal-panel text-terminal-muted',
+};
+
+function EvalCard({ ev }: { ev: TrackedEval }) {
+  const a = ev.assessment;
+  return (
+    <div className={`bg-terminal-surface border rounded-lg p-4 space-y-3 ${URGENCY[a.urgency]}`}>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="text-sm font-semibold text-terminal-text">
+              {ev.accountName ?? `${ev.propFirm} ${ev.accountSize / 1000}K`}
+            </h3>
+            <span className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded ${OUTCOME_BADGE[a.outcome]}`}>
+              {a.outcome.replace('_', ' ')}
+            </span>
+          </div>
+          <p className="text-[11px] text-terminal-muted mt-0.5">
+            bought {ev.purchaseDate}
+            {ev.expiresOn && ` · expires ${ev.expiresOn}`}
+          </p>
+        </div>
+        {a.daysRemaining !== null && a.outcome === 'in_progress' && (
+          <div className="text-right shrink-0">
+            <div className={`text-lg font-mono ${a.daysRemaining <= 5 ? 'text-terminal-sell' : 'text-terminal-text'}`}>
+              {a.daysRemaining}d
+            </div>
+            <div className="text-[10px] text-terminal-muted">left</div>
+          </div>
+        )}
+      </div>
+
+      {/* progress toward target */}
+      <div>
+        <div className="flex items-center justify-between text-[11px] mb-1">
+          <span className="text-terminal-muted">Progress</span>
+          <span className="font-mono text-terminal-text">
+            {money(a.profit)} · {a.progressPct}%
+          </span>
+        </div>
+        <div className="h-2 rounded bg-terminal-panel overflow-hidden">
+          <div
+            className={`h-full ${a.progressPct >= 100 ? 'bg-terminal-buy' : a.onTrack === false ? 'bg-yellow-500' : 'bg-terminal-muted'}`}
+            style={{ width: `${Math.min(100, a.progressPct)}%` }}
+          />
+        </div>
+      </div>
+
+      {a.outcome === 'in_progress' && (
+        <div className="text-[11px] font-mono text-terminal-muted">
+          {a.projectionRange
+            ? `needs ~${a.projectionRange.fast}-${a.projectionRange.slow}d at $${a.ratePerTradingDay}/trading day`
+            : `no projection yet — ${a.tradingDaysObserved} trading day(s) observed`}
+        </div>
+      )}
+
+      {a.notes.length > 0 && (
+        <ul className="space-y-1 border-t border-terminal-border pt-2">
+          {a.notes.map((n, i) => (
+            <li key={i} className="text-[11px] text-terminal-text">{n}</li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

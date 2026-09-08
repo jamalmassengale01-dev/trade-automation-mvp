@@ -40,6 +40,7 @@ import { attachUser, requireAuth } from './middleware/auth';
 import { cleanupExpiredSessions } from './services/session';
 import { eodFlattenTick } from './services/eodFlatten';
 import { testSessionOverride, effectiveSessionWindows } from './strategy/sessions';
+import { refreshEvalOutcomes } from './services/evalTracker';
 
 const app = express();
 
@@ -293,6 +294,26 @@ function startCleanupTasks(): void {
       });
     }
   }, 60 * 1000);
+
+  // Evaluation outcomes. Hourly is plenty: a pass, a blow or an expiry is a
+  // calendar-scale event, and the transition raises a risk event so it is not
+  // discovered by happening to look at a dashboard.
+  const sweepEvals = async () => {
+    try {
+      const changed = await refreshEvalOutcomes();
+      if (changed.length > 0) {
+        logger.warn('Evaluation outcomes changed', {
+          transitions: changed.map((c) => `${c.accountName}: ${c.assessment.outcome}`),
+        });
+      }
+    } catch (error) {
+      logger.error('Eval sweep failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+  setInterval(sweepEvals, 60 * 60 * 1000);
+  setTimeout(sweepEvals, 45 * 1000);
 
   // Rule reconciliation: compare each account's preset assumptions against
   // what the broker actually reports. Runs every 15 minutes so a wrong preset

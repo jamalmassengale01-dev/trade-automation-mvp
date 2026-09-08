@@ -5,6 +5,7 @@ import { bracketManager } from '../strategy/bracketManager';
 import { calculatePropFirm, toDerivedFrom, PropFirmInputs } from '../strategy/propFirmMath';
 import { reconcileAllAccounts, reconcileAccountRules } from '../services/ruleReconciliation';
 import { listPayoutStatus, getAccountPayoutStatus, requestPayout, settlePayout } from '../services/launchpad';
+import { listEvals, createEval, refreshEvalOutcomes } from '../services/evalTracker';
 import { requireAdmin } from '../middleware/auth';
 import { ownsRow, scopeClause } from '../middleware/ownership';
 import config from '../config';
@@ -594,6 +595,64 @@ router.post('/payouts/:id/settle', requireAdmin, async (req: Request, res: Respo
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     res.status(400).json({ success: false, error: message });
+  }
+});
+
+/**
+ * GET /api/gb/evals
+ * Every tracked evaluation with its countdown, projection and urgency.
+ */
+router.get('/evals', async (req: Request, res: Response) => {
+  try {
+    const scope = scopeClause(req, 'ba', 1);
+    // Evals not yet linked to an account have no owner to scope by, so an
+    // admin sees them and a customer does not.
+    const clause = req.user?.role === 'admin' ? 'TRUE' : `(${scope.clause})`;
+    res.json({ success: true, data: await listEvals(clause, scope.params) });
+  } catch (error) {
+    routeLogger.error('Failed to list evals', { error: error instanceof Error ? error.message : String(error) });
+    res.status(500).json({ success: false, error: 'Failed to list evals' });
+  }
+});
+
+/** POST /api/gb/evals — record an evaluation purchase. */
+router.post('/evals', async (req: Request, res: Response) => {
+  try {
+    const b = req.body ?? {};
+    const result = await createEval({
+      brokerAccountId: b.broker_account_id ?? null,
+      propFirm: String(b.prop_firm ?? 'apex'),
+      accountSize: Number(b.account_size),
+      purchaseDate: String(b.purchase_date ?? ''),
+      evalCost: b.eval_cost !== undefined ? Number(b.eval_cost) : 0,
+      activationCost: b.activation_cost !== undefined ? Number(b.activation_cost) : 0,
+      expiryDays: b.expiry_days !== undefined ? Number(b.expiry_days) : 30,
+      userId: req.user?.id ?? null,
+    });
+    res.status(201).json({ success: true, data: result });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(400).json({ success: false, error: message });
+  }
+});
+
+/** POST /api/gb/evals/refresh — sweep outcomes now instead of waiting. */
+router.post('/evals/refresh', requireAdmin, async (_req: Request, res: Response) => {
+  try {
+    const changed = await refreshEvalOutcomes();
+    res.json({
+      success: true,
+      data: {
+        transitions: changed.length,
+        changed: changed.map((c) => ({
+          id: c.id, account: c.accountName,
+          outcome: c.assessment.outcome, reason: c.assessment.reason,
+        })),
+      },
+    });
+  } catch (error) {
+    routeLogger.error('Eval refresh failed', { error: error instanceof Error ? error.message : String(error) });
+    res.status(500).json({ success: false, error: 'Eval refresh failed' });
   }
 });
 
