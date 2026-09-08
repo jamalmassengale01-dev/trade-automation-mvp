@@ -14,7 +14,7 @@ import {
   createSession, revokeSession, revokeAllUserSessions,
   SESSION_COOKIE, SESSION_TTL_MS,
 } from '../services/session';
-import { requireAuth, readSessionCookie } from '../middleware/auth';
+import { requireAuth, readSessionCookie, rateLimitLogin } from '../middleware/auth';
 import config from '../config';
 import logger from '../utils/logger';
 
@@ -61,7 +61,7 @@ interface UserRow extends Record<string, unknown> {
  * account. Distinguishing them would let anyone enumerate which addresses have
  * accounts.
  */
-router.post('/login', async (req: Request, res: Response) => {
+router.post('/login', rateLimitLogin, async (req: Request, res: Response) => {
   const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
 

@@ -47,6 +47,8 @@ export interface TrackedState {
 
 export interface PresetAssumptions {
   id: string;
+  /** Days idle before the firm's inactivity policy puts the account at risk. 0 disables. */
+  inactivityAlertDays?: number;
   startBalance: number;
   maxDrawdown: number;
   dailyLossCap: number;
@@ -76,6 +78,14 @@ export interface ReconcileInput {
   tracked: TrackedState;
   preset: PresetAssumptions;
   now: Date;
+  /**
+   * Days since this account last placed a trade. null means it has never
+   * traded, in which case pass its age instead — a funded account that has sat
+   * untouched since activation is the case most at risk.
+   */
+  daysSinceLastTrade?: number | null;
+  /** Days since the account row was created, used when it has never traded. */
+  accountAgeDays?: number | null;
   /** Overrides for the comparison thresholds. */
   tolerances?: Partial<Tolerances>;
 }
@@ -220,7 +230,35 @@ export function reconcileRules(input: ReconcileInput): ReconcileResult {
     });
   }
 
-  // ---- 5. Preset verification age ------------------------------------
+  // ---- 5. Inactivity ---------------------------------------------------
+  // Warn, never halt. The remedy for an idle account is to trade it; blocking
+  // trades would guarantee the outcome the policy threatens. This is also the
+  // one failure that produces no error anywhere — an expired TradingView alert
+  // just stops sending, and nothing looks wrong except an absence of trades.
+  const inactivityDays = preset.inactivityAlertDays ?? 0;
+  if (inactivityDays > 0) {
+    // Never traded (null) falls back to account age; unknown (undefined) skips.
+    const neverTraded = input.daysSinceLastTrade === null;
+    const idle = neverTraded
+      ? input.accountAgeDays ?? null
+      : input.daysSinceLastTrade ?? null;
+
+    if (idle !== null && idle > inactivityDays) {
+      add({
+        id: neverTraded ? 'never_traded' : 'account_inactive',
+        severity: 'warn',
+        message: neverTraded
+          ? `This account has never placed a trade in ${idle} day(s). The firm's inactivity ` +
+            `policy can close an idle account — check the strategy is mapped and its alerts are live.`
+          : `No trade in ${idle} day(s), past the ${inactivityDays}-day inactivity threshold. ` +
+            `An expired alert or a disconnected webhook produces exactly this: no errors, just ` +
+            `silence. The firm's inactivity policy can close the account.`,
+        detail: { idleDays: idle, thresholdDays: inactivityDays, neverTraded: String(neverTraded) },
+      });
+    }
+  }
+
+  // ---- 6. Preset verification age ------------------------------------
   // Never a halt: an expired confirmation date is not evidence the rules
   // changed, and halting on it would flatten a fleet over paperwork.
   if (preset.verifiedAt === null) {

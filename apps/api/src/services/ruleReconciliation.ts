@@ -50,6 +50,8 @@ interface AccountRow extends Record<string, unknown> {
   p_phase: string | null;
   p_verified_at: Date | null;
   p_stale_after_days: number | null;
+  p_inactivity_alert_days: number | null;
+  created_at: Date | null;
 }
 
 const num = (v: string | number | null | undefined): number => Number(v ?? 0);
@@ -66,7 +68,8 @@ export async function reconcileAccountRules(accountId: string): Promise<RuleChec
             p.daily_loss_cap   AS p_daily_loss_cap,
             p.phase            AS p_phase,
             p.verified_at      AS p_verified_at,
-            p.stale_after_days AS p_stale_after_days
+            p.stale_after_days AS p_stale_after_days,
+            p.inactivity_alert_days AS p_inactivity_alert_days
      FROM broker_accounts ba
      LEFT JOIN presets p ON p.id = ba.preset_id
      WHERE ba.id = $1`,
@@ -100,7 +103,23 @@ export async function reconcileAccountRules(accountId: string): Promise<RuleChec
       phase: (acct.p_phase as 'eval' | 'funded') ?? 'eval',
       verifiedAt: acct.p_verified_at ? new Date(acct.p_verified_at) : null,
       staleAfterDays: acct.p_stale_after_days ?? 90,
+      inactivityAlertDays: acct.p_inactivity_alert_days ?? 0,
     };
+
+    // Idle time is measured from the last trade, or from account creation when
+    // there has never been one.
+    const lastTrade = await query<{ last_at: Date | null }>(
+      `SELECT MAX(created_at) AS last_at FROM gb_trades WHERE broker_account_id = $1`,
+      [acct.id]
+    );
+    const DAY_MS = 86_400_000;
+    const lastAt = lastTrade.rows[0]?.last_at ?? null;
+    const daysSinceLastTrade = lastAt
+      ? Math.floor((Date.now() - new Date(lastAt).getTime()) / DAY_MS)
+      : null;
+    const accountAgeDays = acct.created_at
+      ? Math.floor((Date.now() - new Date(acct.created_at).getTime()) / DAY_MS)
+      : null;
 
     const result = reconcileRules({
       snapshot: {
@@ -115,6 +134,8 @@ export async function reconcileAccountRules(accountId: string): Promise<RuleChec
       },
       preset,
       now: new Date(),
+      daysSinceLastTrade,
+      accountAgeDays,
     });
 
     await query(

@@ -89,6 +89,65 @@ export function requireRole(...roles: UserRole[]) {
 export const requireAdmin = requireRole('admin');
 
 /**
+ * Per-IP rate limit for unauthenticated endpoints.
+ *
+ * In-memory and per-process on purpose: the resource being protected is THIS
+ * process's memory, and a database round-trip on the login path would add the
+ * latency the limiter exists to avoid. Behind multiple replicas this bounds
+ * each replica rather than the cluster, which is the right first defence but
+ * not the last one.
+ *
+ * Must run BEFORE the password verification, not after — the whole point is to
+ * refuse the request before it reserves ~128 MB of scrypt working memory.
+ */
+interface Bucket { hits: number[]; }
+const loginBuckets = new Map<string, Bucket>();
+const LOGIN_WINDOW_MS = 5 * 60 * 1000;
+const LOGIN_MAX_PER_WINDOW = 10;
+/** Stop the map growing without bound under a rotating-IP flood. */
+const MAX_TRACKED_IPS = 10_000;
+
+export function rateLimitLogin(req: Request, res: Response, next: NextFunction): void {
+  const ip = req.ip ?? 'unknown';
+  const now = Date.now();
+  const cutoff = now - LOGIN_WINDOW_MS;
+
+  let bucket = loginBuckets.get(ip);
+  if (!bucket) {
+    if (loginBuckets.size >= MAX_TRACKED_IPS) {
+      // Drop the coldest entries rather than refusing service outright.
+      for (const [key, b] of loginBuckets) {
+        if (b.hits.every((t) => t < cutoff)) loginBuckets.delete(key);
+        if (loginBuckets.size < MAX_TRACKED_IPS) break;
+      }
+    }
+    bucket = { hits: [] };
+    loginBuckets.set(ip, bucket);
+  }
+
+  bucket.hits = bucket.hits.filter((t) => t >= cutoff);
+
+  if (bucket.hits.length >= LOGIN_MAX_PER_WINDOW) {
+    const retryAfter = Math.ceil((bucket.hits[0] + LOGIN_WINDOW_MS - now) / 1000);
+    log.warn('Login rate limit hit', { ip, attempts: bucket.hits.length });
+    res.setHeader('Retry-After', String(retryAfter));
+    res.status(429).json({
+      success: false,
+      error: `Too many sign-in attempts. Try again in ${Math.ceil(retryAfter / 60)} minute(s).`,
+    });
+    return;
+  }
+
+  bucket.hits.push(now);
+  next();
+}
+
+/** Testing hook — clears accumulated login buckets. */
+export function __resetLoginRateLimit(): void {
+  loginBuckets.clear();
+}
+
+/**
  * Ownership scope for list queries.
  *
  * Returns a SQL fragment and parameter for filtering to the caller's own rows.

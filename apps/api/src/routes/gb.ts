@@ -40,7 +40,7 @@ const PRESET_FIELDS = [
   'daily_loss_cap', 'base_risk', 'max_contracts', 'dd_mode', 'tp1_r', 'tp2_r',
   'cap_step', 'max_trades_day', 'profit_split', 'step2_mult', 'step3_mult', 'step4_mult',
   'pass_zone_buffer', 'sniper_risk_pct', 'sniper_tp_r', 'sniper_max_trades_day', 'notes',
-  'derived_from',
+  'inactivity_alert_days', 'derived_from',
 ] as const;
 
 /** Columns the DB expects as JSONB — pg needs these stringified, not passed as objects. */
@@ -74,7 +74,7 @@ function validatePresetInput(body: PresetInput, opts: { requireCore: boolean }):
   const numericFields = [
     'start_balance', 'target_profit', 'max_drawdown', 'daily_loss_cap', 'base_risk', 'max_contracts',
     'tp1_r', 'tp2_r', 'cap_step', 'max_trades_day', 'profit_split', 'step2_mult', 'step3_mult', 'step4_mult',
-    'pass_zone_buffer', 'sniper_risk_pct', 'sniper_tp_r', 'sniper_max_trades_day',
+    'pass_zone_buffer', 'sniper_risk_pct', 'sniper_tp_r', 'sniper_max_trades_day', 'inactivity_alert_days',
   ] as const;
   for (const f of numericFields) {
     if (body[f] !== undefined && body[f] !== null && (typeof body[f] !== 'number' || !Number.isFinite(body[f] as number))) {

@@ -38,6 +38,47 @@ const SALT_LEN = 16;
 // scrypt needs maxmem above roughly 128 * N * r bytes or it throws.
 const MAX_MEM = 256 * N * R;
 
+/**
+ * Concurrency gate on hashing.
+ *
+ * At these parameters each scrypt call reserves roughly 128 MB (128 x N x r).
+ * That is the point of a memory-hard KDF, but it also means unbounded
+ * concurrency turns login into a memory amplifier: the verification runs even
+ * for an unknown email — deliberately, so a missing account cannot be detected
+ * by timing — so an attacker rotating fake addresses pays nothing and the
+ * server pays 128 MB per request. The per-account lockout cannot help, because
+ * there is no account.
+ *
+ * Capping in-flight hashes bounds peak usage to a known ceiling and makes the
+ * failure mode a queue rather than an OOM. Requests wait; they are not dropped.
+ */
+const MAX_CONCURRENT_HASHES = 4;
+let activeHashes = 0;
+const hashQueue: Array<() => void> = [];
+
+async function withHashSlot<T>(fn: () => Promise<T>): Promise<T> {
+  if (activeHashes >= MAX_CONCURRENT_HASHES) {
+    await new Promise<void>((resolve) => hashQueue.push(resolve));
+  }
+  activeHashes++;
+  try {
+    return await fn();
+  } finally {
+    activeHashes--;
+    const next = hashQueue.shift();
+    if (next) next();
+  }
+}
+
+/** Peak-memory ceiling this process will allow for password hashing. */
+export function hashingCapacity(): { maxConcurrent: number; approxPeakMb: number; queued: number } {
+  return {
+    maxConcurrent: MAX_CONCURRENT_HASHES,
+    approxPeakMb: Math.round((128 * N * R * MAX_CONCURRENT_HASHES) / 1024 ** 2),
+    queued: hashQueue.length,
+  };
+}
+
 export interface PasswordPolicyResult {
   ok: boolean;
   reason?: string;
@@ -65,9 +106,9 @@ export async function hashPassword(password: string): Promise<string> {
   if (!policy.ok) throw new Error(policy.reason);
 
   const salt = randomBytes(SALT_LEN);
-  const key = await scryptAsync(password, salt, KEY_LEN, {
-    N, r: R, p: P, maxmem: MAX_MEM,
-  });
+  const key = await withHashSlot(() =>
+    scryptAsync(password, salt, KEY_LEN, { N, r: R, p: P, maxmem: MAX_MEM })
+  );
 
   return `scrypt$${N}$${R}$${P}$${salt.toString('base64')}$${key.toString('base64')}`;
 }
@@ -107,9 +148,9 @@ export async function verifyPassword(
   if (salt.length === 0 || expected.length === 0) return false;
 
   try {
-    const actual = await scryptAsync(password, salt, expected.length, {
-      N: n, r, p, maxmem: 256 * n * r,
-    });
+    const actual = await withHashSlot(() =>
+      scryptAsync(password, salt, expected.length, { N: n, r, p, maxmem: 256 * n * r })
+    );
     return actual.length === expected.length && timingSafeEqual(actual, expected);
   } catch {
     return false;

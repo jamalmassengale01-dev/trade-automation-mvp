@@ -169,6 +169,55 @@ describe('reconcileRules — drawdown', () => {
   });
 });
 
+describe('reconcileRules — inactivity', () => {
+  // Apex lists "Inactivity Policy: YES" on both eval and PA accounts, so an
+  // idle account can be closed. The threshold is per-preset because Apex's
+  // pricing page does not state the window.
+  const WITH_POLICY = { ...APEX_50K, inactivityAlertDays: 7 };
+
+  it('warns once an account has been idle past the threshold', () => {
+    const r = reconcileRules(healthy({ preset: WITH_POLICY, daysSinceLastTrade: 9 }));
+    expect(ids(r)).toContain('account_inactive');
+    expect(r.verdict).toBe('warn');
+  });
+
+  it('stays quiet inside the threshold', () => {
+    const r = reconcileRules(healthy({ preset: WITH_POLICY, daysSinceLastTrade: 3 }));
+    expect(ids(r)).not.toContain('account_inactive');
+  });
+
+  it('never halts — the remedy for an idle account is to trade it', () => {
+    const r = reconcileRules(healthy({ preset: WITH_POLICY, daysSinceLastTrade: 400 }));
+    expect(r.verdict).toBe('warn');
+  });
+
+  it('falls back to account age when the account has never traded', () => {
+    const r = reconcileRules(
+      healthy({ preset: WITH_POLICY, daysSinceLastTrade: null, accountAgeDays: 20 })
+    );
+    expect(ids(r)).toContain('never_traded');
+    expect(r.findings.find((f) => f.id === 'never_traded')!.message).toMatch(/never placed a trade/);
+  });
+
+  it('does not flag a never-traded account that is still new', () => {
+    const r = reconcileRules(
+      healthy({ preset: WITH_POLICY, daysSinceLastTrade: null, accountAgeDays: 2 })
+    );
+    expect(ids(r)).not.toContain('never_traded');
+  });
+
+  it('is disabled when the preset sets no threshold', () => {
+    const r = reconcileRules(healthy({ daysSinceLastTrade: 400 }));
+    expect(ids(r)).not.toContain('account_inactive');
+  });
+
+  it('skips the check when idle time is unknown', () => {
+    const r = reconcileRules(healthy({ preset: WITH_POLICY }));
+    expect(ids(r)).not.toContain('account_inactive');
+    expect(ids(r)).not.toContain('never_traded');
+  });
+});
+
 describe('reconcileRules — preset verification age', () => {
   it('warns, but never halts, when a preset was never verified', () => {
     const r = reconcileRules(healthy({ preset: { ...APEX_50K, verifiedAt: null } }));

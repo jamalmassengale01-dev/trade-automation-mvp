@@ -1,6 +1,9 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Request, Response } from 'express';
-import { readSessionCookie, requireAuth, requireRole, requireAdmin, accountScope } from './auth';
+import {
+  readSessionCookie, requireAuth, requireRole, requireAdmin, accountScope,
+  rateLimitLogin, __resetLoginRateLimit,
+} from './auth';
 import { SESSION_COOKIE } from '../services/session';
 import { scopeClause } from './ownership';
 
@@ -12,6 +15,7 @@ function res() {
   const r: Record<string, unknown> = {};
   r.statusCode = 200;
   r.status = vi.fn((code: number) => { r.statusCode = code; return r; });
+  r.setHeader = vi.fn();
   r.json = vi.fn((body: unknown) => { r.body = body; return r; });
   return r as unknown as Response & { statusCode: number; body: { error: string } };
 }
@@ -95,6 +99,51 @@ describe('requireRole / requireAdmin', () => {
   it('accepts any of several permitted roles', () => {
     const next = vi.fn();
     requireRole('admin', 'customer')(req({ user: customer }), res(), next);
+    expect(next).toHaveBeenCalledOnce();
+  });
+});
+
+describe('rateLimitLogin', () => {
+  // Login runs a ~128 MB scrypt even for an unknown email, on purpose, so that
+  // a missing account cannot be spotted by timing. That makes an unlimited
+  // login endpoint a memory amplifier, and the per-account lockout cannot help
+  // when the attacker never names a real account.
+  beforeEach(() => __resetLoginRateLimit());
+
+  const attempt = (ip: string) => {
+    const r = res();
+    const next = vi.fn();
+    rateLimitLogin(req({ ip }), r, next);
+    return { passed: next.mock.calls.length > 0, status: r.statusCode, res: r };
+  };
+
+  it('allows attempts up to the limit', () => {
+    for (let i = 0; i < 10; i++) expect(attempt('1.2.3.4').passed).toBe(true);
+  });
+
+  it('refuses the eleventh with 429 and does not reach the handler', () => {
+    for (let i = 0; i < 10; i++) attempt('1.2.3.4');
+    const blocked = attempt('1.2.3.4');
+    expect(blocked.passed).toBe(false);
+    expect(blocked.status).toBe(429);
+  });
+
+  it('sets Retry-After so a client knows when to come back', () => {
+    for (let i = 0; i < 11; i++) attempt('1.2.3.4');
+    const r = res();
+    rateLimitLogin(req({ ip: '1.2.3.4' }), r, vi.fn());
+    expect((r.setHeader as ReturnType<typeof vi.fn>).mock.calls.some((c) => c[0] === 'Retry-After')).toBe(true);
+  });
+
+  it('tracks each IP separately — one abuser does not lock everyone out', () => {
+    for (let i = 0; i < 11; i++) attempt('1.2.3.4');
+    expect(attempt('5.6.7.8').passed).toBe(true);
+  });
+
+  it('handles a missing IP without throwing', () => {
+    const r = res();
+    const next = vi.fn();
+    rateLimitLogin(req(), r, next);
     expect(next).toHaveBeenCalledOnce();
   });
 });
