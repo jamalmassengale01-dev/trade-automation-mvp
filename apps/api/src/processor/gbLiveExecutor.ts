@@ -33,6 +33,7 @@ import type { DdMode } from '../strategy/drawdown';
 import { bracketManager } from '../strategy/bracketManager';
 import { shouldBlockTrade } from '../strategy/ruleReconciler';
 import { getLatestRuleCheck } from '../services/ruleReconciliation';
+import { entitlementForUser } from '../services/entitlements';
 import type { GbLiveMeta } from '../webhook/gbLiveSchema';
 import logger from '../utils/logger';
 
@@ -103,6 +104,7 @@ interface AccountWithPreset extends Record<string, any> {
   p_daily_loss_cap_source: 'firm' | 'internal' | null;
   p_broker_day_tz: string | null;
   p_broker_day_hour: number | null;
+  user_id: string | null;
 }
 
 export async function executeGbLiveAlert(input: GbExecInput): Promise<GbExecResult> {
@@ -194,6 +196,37 @@ async function processAccount(
   if (now.getTime() - alertTime.getTime() > STALE_SIGNAL_MS) {
     await riskEvent(acct.id, strategyId, 'gb_stale_signal', `Signal is ${Math.round((now.getTime() - alertTime.getTime()) / 60000)} min old`, { alertTime: alertTime.toISOString() });
     return { status: 'rejected', reason: 'stale_signal' };
+  }
+
+  // ---- subscription ---------------------------------------------------
+  //
+  // Deliberately placed AFTER the close-all branch above, which returns before
+  // reaching here. That ordering is the guarantee: a lapsed subscription stops
+  // NEW entries and never stops an exit. Brackets, breakeven moves and the
+  // end-of-day flatten keep running on an open position regardless of billing.
+  //
+  // Withholding exit management from someone who owes $97 does not collect the
+  // $97; it strands an MNQ position with nobody managing the stop and makes us
+  // responsible for the outcome.
+  //
+  // Accounts with no owner are not gated — user_id was not set on creation
+  // until recently, and refusing to trade a pre-existing account because of a
+  // schema gap would be our bug charged to the customer.
+  if (acct.user_id) {
+    const entitlement = await entitlementForUser(acct.user_id);
+    if (!entitlement.canOpenNewTrades) {
+      await riskEvent(
+        acct.id, strategyId, 'gb_subscription_inactive',
+        entitlement.reason ?? 'No active subscription — new trades are paused',
+        { status: entitlement.status, tier: entitlement.tier?.id ?? null }
+      );
+      return { status: 'rejected', reason: 'subscription_inactive' };
+    }
+    if (entitlement.inGrace) {
+      log.warn('Trading on a past-due subscription', {
+        accountId: acct.id, graceDaysLeft: entitlement.graceDaysLeft,
+      });
+    }
   }
 
   // ---- rule reconciliation halt ---------------------------------------

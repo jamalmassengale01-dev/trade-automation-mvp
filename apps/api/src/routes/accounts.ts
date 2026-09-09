@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { checkCanAddAccount, usageForFirm } from '../services/accountLimits';
+import { checkTierAccountAllowance } from '../services/entitlements';
 import { BrokerAccount } from '../types';
 import { query } from '../db';
 import { getBrokerAdapter } from '../brokers';
@@ -121,6 +122,24 @@ router.post('/', async (req: Request, res: Response) => {
       maxPositions: 10,
       ...settings,
     };
+
+    // Two independent ceilings, both of which apply. The plan limit is what
+    // EdgePilot sells; the prop-firm cap below is what the firm permits. They
+    // fail differently on purpose: one is an upsell, the other is a rule.
+    const tierCheck = await checkTierAccountAllowance(req.user!.id);
+    if (!tierCheck.allowed) {
+      res.status(402).json({
+        success: false,
+        error: tierCheck.reason,
+        entitlement: {
+          tier: tierCheck.entitlement.tier?.id ?? null,
+          maxAccounts: tierCheck.entitlement.maxAccounts,
+          accountsInUse: tierCheck.entitlement.accountsInUse,
+          status: tierCheck.entitlement.status,
+        },
+      });
+      return;
+    }
 
     // Prop-firm caps are per person. An account with no category — a mock
     // broker, the generic copier path — counts against nothing and skips this.

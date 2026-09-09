@@ -42,6 +42,8 @@ import { eodFlattenTick } from './services/eodFlatten';
 import { testSessionOverride, effectiveSessionWindows } from './strategy/sessions';
 import { refreshEvalOutcomes } from './services/evalTracker';
 import { notificationSweep, externalChannelConfigured } from './services/notifications';
+import { handleWebhook as handleStripeWebhook, stripeConfigured } from './services/stripe';
+import billingRoutes from './routes/billing';
 
 const app = express();
 
@@ -52,6 +54,38 @@ app.use(helmet());
 // Cookies only travel cross-origin when the origin is named explicitly and
 // credentials are allowed — a wildcard origin silently drops them.
 app.use(cors({ origin: config.corsOrigins, credentials: true }));
+
+// The Stripe webhook is mounted BEFORE express.json() and takes the raw body.
+//
+// Stripe signs the exact bytes it sent. express.json() parses and discards
+// them, and re-serialising the parsed object does not reproduce the original —
+// key order and whitespace differ — so verification against a re-stringified
+// body fails, and the usual "fix" is to stop verifying. An unverified billing
+// webhook is a free-subscription endpoint: anyone who learns the URL can POST
+// customer.subscription.updated with status active. Ordering is the whole
+// defence, so it lives here rather than in routes/billing.ts.
+app.post(
+  '/webhook/stripe',
+  express.raw({ type: 'application/json' }),
+  async (req: express.Request, res: express.Response) => {
+    const signature = req.headers['stripe-signature'];
+    if (typeof signature !== 'string') {
+      res.status(400).json({ error: 'Missing stripe-signature header' });
+      return;
+    }
+    try {
+      const result = await handleStripeWebhook(req.body as Buffer, signature);
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // 400, not 500: a bad signature is a rejected request, not a server
+      // fault, and Stripe should not retry it.
+      logger.error('Stripe webhook rejected', { error: message });
+      res.status(400).json({ error: 'Webhook verification failed' });
+    }
+  }
+);
+
 app.use(express.json());
 
 // Request logging with trace ID
@@ -109,6 +143,7 @@ app.use('/api/system', requireAuth, systemRoutes);
 app.use('/api/strategies', requireAuth, strategiesRoutes);
 app.use('/api/gb', requireAuth, gbRoutes);
 app.use('/api/catalog', requireAuth, catalogRoutes);
+app.use('/api/billing', requireAuth, billingRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {
@@ -189,6 +224,14 @@ async function startServer() {
     // always runs — but it must not be a silent one. Someone believing they
     // will be told when an account blows, and not being told, is worse than
     // knowing they have to look.
+    if (!stripeConfigured()) {
+      logger.warn(
+        'Stripe is not configured — billing routes will return 503 and every customer ' +
+        'resolves to no subscription. Set STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET and ' +
+        'the STRIPE_PRICE_* ids to enable it.'
+      );
+    }
+
     if (!externalChannelConfigured()) {
       logger.warn(
         'No external notification channel configured. Alerts will be written to ' +
