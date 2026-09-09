@@ -18,6 +18,13 @@ export interface GatePreset {
   maxTradesPerDay?: number;
   /** Percent of the daily loss cap held back for commissions and slippage. */
   dllBufferPct?: number;
+  /**
+   * 'internal' when the firm publishes no daily limit and this cap is
+   * self-imposed. The gate then REFUSES to trade without drawdown state,
+   * because in that configuration the drawdown floor is the only limit with
+   * anything real behind it.
+   */
+  dailyLossCapSource?: 'firm' | 'internal';
 }
 
 export type GateReason =
@@ -26,6 +33,7 @@ export type GateReason =
   | 'max_trades_day'
   | 'dll_headroom'
   | 'drawdown_headroom'
+  | 'drawdown_unknown'
   | 'stale_signal'
   | 'day_locked_out'
   | 'trade_already_open'
@@ -100,8 +108,12 @@ export function checkGate(input: {
   preset: GatePreset;
   session: Session | null;
   stepRisk: number;
-  /** Current drawdown floor and room. Omit when unknown — the gate then skips
-   *  the drawdown check rather than guessing at a floor. */
+  /**
+   * Current drawdown floor and room. Omit when unknown: on a firm-enforced
+   * daily cap the gate then skips the drawdown check rather than guessing at a
+   * floor, but on a SELF-imposed cap it refuses the trade outright — there is
+   * nothing else holding the line.
+   */
   drawdown?: DrawdownState;
 }): GateResult {
   const { state, preset, session, stepRisk } = input;
@@ -132,13 +144,25 @@ export function checkGate(input: {
     };
   }
 
+  // Where the daily cap is self-imposed, the drawdown floor is the only limit
+  // with external enforcement behind it. Trading blind to it is not a degraded
+  // mode, it is an unbounded one — so refuse rather than proceed.
+  if (preset.dailyLossCapSource === 'internal' && !input.drawdown) {
+    return {
+      allowed: false,
+      reason: 'drawdown_unknown',
+      message:
+        'This account\'s daily cap is self-imposed and its drawdown state is unknown, so no ' +
+        'limit on this trade can be established. Refusing rather than sizing blind.',
+      details: { dailyLossCapSource: 'internal' },
+    };
+  }
+
   // Drawdown last, and separate from the DLL, because the two failures are not
   // equivalent. Breaching the daily cap costs a day. Breaching the drawdown
   // floor ends the account, and on a trailing floor there are states where the
   // drawdown room is SMALLER than the daily room — a profitable account that
-  // has given some back is exactly that case. Checked only when the caller
-  // supplies drawdown state, so accounts without recorded history behave as
-  // before rather than being blocked by an absence of data.
+  // has given some back is exactly that case.
   if (input.drawdown) {
     const dd = drawdownHeadroom(input.drawdown, stepRisk, preset.dllBufferPct ?? 0);
     if (!dd.allowed) {

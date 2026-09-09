@@ -100,6 +100,7 @@ interface AccountWithPreset extends Record<string, any> {
   p_max_drawdown: string | number | null;
   p_dd_mode: DdMode | null;
   p_safety_net_buffer: string | number | null;
+  p_daily_loss_cap_source: 'firm' | 'internal' | null;
 }
 
 export async function executeGbLiveAlert(input: GbExecInput): Promise<GbExecResult> {
@@ -161,7 +162,8 @@ async function processAccount(
             p.start_balance         AS p_start_balance,
             p.max_drawdown          AS p_max_drawdown,
             p.dd_mode               AS p_dd_mode,
-            p.safety_net_buffer     AS p_safety_net_buffer
+            p.safety_net_buffer     AS p_safety_net_buffer,
+            p.daily_loss_cap_source AS p_daily_loss_cap_source
      FROM broker_accounts ba
      LEFT JOIN presets p ON p.id = ba.preset_id
      WHERE ba.id = $1`,
@@ -302,6 +304,7 @@ async function processAccount(
       acct.p_safety_net_buffer === null || acct.p_safety_net_buffer === undefined
         ? null
         : Number(acct.p_safety_net_buffer),
+    dailyLossCapSource: acct.p_daily_loss_cap_source ?? 'firm',
   };
 
   const remaining = remainingTarget(preset.targetProfit, Number(acct.cumulative_pnl ?? 0));
@@ -351,7 +354,7 @@ async function processAccount(
 
     const gate = checkGate({
       state,
-      preset: { dailyLossCap: preset.dailyLossCap, maxTradesPerDay: preset.maxTradesPerDay, dllBufferPct: preset.dllBufferPct },
+      preset: { dailyLossCap: preset.dailyLossCap, maxTradesPerDay: preset.maxTradesPerDay, dllBufferPct: preset.dllBufferPct, dailyLossCapSource: preset.dailyLossCapSource },
       session,
       stepRisk: risk,
       drawdown,

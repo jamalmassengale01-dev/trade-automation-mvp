@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { calculatePropFirm, PropFirmInputs, toDerivedFrom } from './propFirmMath';
+import { calculatePropFirm, PropFirmInputs, toDerivedFrom,
+  suggestInternalDailyLossCap,
+} from './propFirmMath';
 
 /** Apex 50K EOD Eval, exactly as documented in CLAUDE.md. */
 const APEX_50K_EVAL: PropFirmInputs = {
@@ -334,5 +336,76 @@ describe('calculatePropFirm — input validation', () => {
   it('warns about intraday trailing drawdown', () => {
     const r = calculatePropFirm({ ...APEX_50K_EVAL, ddMode: 'intraday_trailing' });
     expect(ids(r)).toContain('intraday_trailing_dd');
+  });
+});
+
+// ------------------------------------------------------------------
+// Firms with no published daily loss limit (Phidias-shaped)
+// ------------------------------------------------------------------
+describe('self-imposed daily loss cap', () => {
+  // Phidias 50K Fundamental (Tradovate), evaluation phase, from the firm's
+  // own accounts page: $2,500 EOD trailing drawdown, $4,000 target, 3 days to
+  // pass, 100 micros, no consistency rule, and no daily loss limit at all.
+  const PHIDIAS_50K = {
+    startBalance: 50_000,
+    targetProfit: 4_000,
+    maxDrawdown: 2_500,
+    ddMode: 'eod_trailing' as const,
+    phase: 'eval' as const,
+    maxContracts: 100,
+    minTradingDays: 3,
+  };
+
+  it('suggests half the drawdown, matching the ratio the ladder assumes', () => {
+    expect(suggestInternalDailyLossCap(2_500)).toBe(1_250);
+    expect(suggestInternalDailyLossCap(2_000)).toBe(1_000); // the Apex ratio
+  });
+
+  it('tells you to set one instead of demanding a rule the firm does not have', () => {
+    expect(() =>
+      calculatePropFirm({ ...PHIDIAS_50K, dailyLossCap: 0, dailyLossCapSource: 'internal' })
+    ).toThrow(/publishes no daily limit.*\$1250/s);
+  });
+
+  it('still rejects a missing cap plainly when the firm does impose one', () => {
+    expect(() => calculatePropFirm({ ...PHIDIAS_50K, dailyLossCap: 0 }))
+      .toThrow('dailyLossCap must be a positive number');
+  });
+
+  it('computes the same numbers as a firm-imposed cap of the same size', () => {
+    const internal = calculatePropFirm({ ...PHIDIAS_50K, dailyLossCap: 1_250, dailyLossCapSource: 'internal' });
+    const firm = calculatePropFirm({ ...PHIDIAS_50K, dailyLossCap: 1_250 });
+    // The arithmetic is identical — only the findings differ.
+    expect(internal.preset.base_risk).toBe(firm.preset.base_risk);
+    expect(internal.preset.daily_loss_cap).toBe(firm.preset.daily_loss_cap);
+  });
+
+  it('warns that the cap is enforced only by us', () => {
+    const r = calculatePropFirm({ ...PHIDIAS_50K, dailyLossCap: 1_250, dailyLossCapSource: 'internal' });
+    const f = r.findings.find((x) => x.id === 'dll_self_enforced');
+    expect(f?.severity).toBe('warning');
+    expect(f?.message).toContain('enforced only by EdgePilot');
+    // ...and not on an ordinary firm-capped preset.
+    expect(
+      calculatePropFirm({ ...PHIDIAS_50K, dailyLossCap: 1_250 }).findings.map((x) => x.id)
+    ).not.toContain('dll_self_enforced');
+  });
+
+  it('pushes back on a self-imposed cap looser than the suggestion', () => {
+    const r = calculatePropFirm({ ...PHIDIAS_50K, dailyLossCap: 2_000, dailyLossCapSource: 'internal' });
+    expect(r.findings.map((x) => x.id)).toContain('internal_dll_above_suggested');
+  });
+
+  it('does not complain when the self-imposed cap is tighter', () => {
+    const r = calculatePropFirm({ ...PHIDIAS_50K, dailyLossCap: 800, dailyLossCapSource: 'internal' });
+    expect(r.findings.map((x) => x.id)).not.toContain('internal_dll_above_suggested');
+  });
+
+  it('has no eval expiry findings when the firm imposes no clock', () => {
+    // Phidias evals do not expire, so the Apex 30-day pressure is absent.
+    const r = calculatePropFirm({ ...PHIDIAS_50K, dailyLossCap: 1_250, dailyLossCapSource: 'internal' });
+    const ids = r.findings.map((x) => x.id);
+    expect(ids).not.toContain('eval_expiry_unreachable');
+    expect(ids).not.toContain('eval_expiry_tight');
   });
 });

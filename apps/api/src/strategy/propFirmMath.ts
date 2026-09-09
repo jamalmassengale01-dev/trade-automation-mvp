@@ -29,12 +29,54 @@ export type DdMode = 'eod_trailing' | 'intraday_trailing' | 'static_fixed';
 export type Phase = 'eval' | 'funded';
 export type RiskRounding = 'ceil' | 'floor' | 'nearest';
 
+/** Who enforces the daily loss cap — see PropFirmInputs.dailyLossCapSource. */
+export type DailyLossCapSource = 'firm' | 'internal';
+
+/**
+ * Default self-imposed daily cap when a firm imposes none, as a fraction of
+ * max drawdown.
+ *
+ * Half is the Apex ratio ($1,000 of $2,000), so the ladder behaves the way it
+ * was designed to: base risk = cap / 3 means two full losses fit inside a day
+ * and the third step is refused. That refusal is the ladder's brake. Without a
+ * daily cap of some kind there is no brake — 1/1/2/4 on a $2,500 drawdown runs
+ * to $2,672 across four losses and ends the account inside one session.
+ */
+export const DEFAULT_INTERNAL_DLL_FRACTION = 0.5;
+
+/** A self-imposed daily cap for a firm that publishes none. */
+export function suggestInternalDailyLossCap(
+  maxDrawdown: number,
+  fraction = DEFAULT_INTERNAL_DLL_FRACTION
+): number {
+  return round2(maxDrawdown * fraction);
+}
+
 export interface PropFirmInputs {
   // ---- straight off the firm's rulebook ----
   startBalance: number;
   targetProfit: number;
   maxDrawdown: number;
+  /**
+   * Daily loss cap. Pass 0 when the firm imposes none (Phidias, for one) and
+   * set `dailyLossCapSource: 'internal'` with the cap you choose to impose on
+   * yourself — see the type below for why that distinction is not cosmetic.
+   */
   dailyLossCap: number;
+  /**
+   * Who enforces the daily loss cap.
+   *
+   * 'firm'     — the prop firm enforces it. If our accounting drifts, the firm
+   *              flattens the account. External enforcement backstops our bugs.
+   * 'internal' — WE are the only enforcement. A firm with no daily limit will
+   *              happily let the ladder run to account death in one session, so
+   *              a drift in day-P&L tracking does not produce a rejected order,
+   *              it produces no limit at all.
+   *
+   * The arithmetic is identical either way. The consequences of being wrong
+   * are not, which is why this is recorded rather than inferred.
+   */
+  dailyLossCapSource?: DailyLossCapSource;
   ddMode: DdMode;
   phase: Phase;
   maxContracts: number;
@@ -252,6 +294,7 @@ export function calculatePropFirm(input: PropFirmInputs): PropFirmCalcResult {
   const targetProfit = Number(input.targetProfit ?? 0);
   const maxDrawdown = Number(input.maxDrawdown);
   const dailyLossCap = Number(input.dailyLossCap);
+  const dailyLossCapSource: DailyLossCapSource = input.dailyLossCapSource ?? 'firm';
   const maxContracts = Math.floor(Number(input.maxContracts));
 
   if (!Number.isFinite(startBalance) || startBalance <= 0) {
@@ -260,8 +303,18 @@ export function calculatePropFirm(input: PropFirmInputs): PropFirmCalcResult {
   if (!Number.isFinite(maxDrawdown) || maxDrawdown <= 0) {
     throw new Error('maxDrawdown must be a positive number');
   }
+  // A cap of zero is not an error when the firm publishes none — it means the
+  // preset has not yet chosen the self-imposed one it needs. Say that, rather
+  // than "must be a positive number", which sends someone looking for a rule
+  // the firm does not have.
   if (!Number.isFinite(dailyLossCap) || dailyLossCap <= 0) {
-    throw new Error('dailyLossCap must be a positive number');
+    throw new Error(
+      dailyLossCapSource === 'internal'
+        ? 'dailyLossCap must be a positive number. This firm publishes no daily limit, so ' +
+          `you must set one: $${suggestInternalDailyLossCap(maxDrawdown)} (half the max ` +
+          'drawdown) matches the ratio the ladder was designed against.'
+        : 'dailyLossCap must be a positive number'
+    );
   }
   if (!Number.isFinite(maxContracts) || maxContracts <= 0) {
     throw new Error('maxContracts must be a positive integer');
@@ -422,6 +475,33 @@ export function calculatePropFirm(input: PropFirmInputs): PropFirmCalcResult {
         `Daily loss cap ($${dailyLossCap}) is not below max drawdown ($${maxDrawdown}), so a ` +
         `single full-cap day can blow the account. The daily cap gives no protection here.`,
     });
+  }
+
+  // A self-imposed cap is a policy, not a rule. Every number above is computed
+  // the same way, so nothing here is a defect — but the failure mode changes
+  // completely and that has to be visible on the preset, not buried in a doc.
+  if (dailyLossCapSource === 'internal') {
+    findings.push({
+      id: 'dll_self_enforced',
+      severity: 'warning',
+      message:
+        `The $${dailyLossCap} daily cap is self-imposed — this firm publishes none. It is ` +
+        'enforced only by EdgePilot, so a drift in day-P&L tracking does not get an order ' +
+        'rejected, it removes the limit entirely. The trailing drawdown floor is the only ' +
+        'backstop underneath it and must stay enabled on this account.',
+    });
+
+    const suggested = suggestInternalDailyLossCap(maxDrawdown);
+    if (dailyLossCap > suggested + EPS) {
+      findings.push({
+        id: 'internal_dll_above_suggested',
+        severity: 'warning',
+        message:
+          `A self-imposed cap of $${dailyLossCap} is above the $${suggested} suggested for a ` +
+          `$${maxDrawdown} drawdown (half). With nothing but our own accounting between the ` +
+          'ladder and the floor, a looser cap buys less than it costs.',
+      });
+    }
   }
 
   if (maxReachableStep < capStep) {

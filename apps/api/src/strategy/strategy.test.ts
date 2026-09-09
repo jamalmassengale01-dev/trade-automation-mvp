@@ -291,6 +291,25 @@ describe('gate', () => {
       expect(g.details).toMatchObject({ floor: 49_000, room: 500, stepRisk: 668 });
     });
 
+    it('refuses to size blind when the daily cap is self-imposed', () => {
+      // Firm-enforced cap with no drawdown state: proceed, the firm backstops us.
+      const firm = { ...preset, dailyLossCapSource: 'firm' as const };
+      expect(checkGate({ state: base, preset: firm, session: 'nyam', stepRisk: 334 }).allowed).toBe(true);
+
+      // Self-imposed cap with no drawdown state: nothing bounds the trade.
+      const internal = { ...preset, dailyLossCapSource: 'internal' as const };
+      const g = checkGate({ state: base, preset: internal, session: 'nyam', stepRisk: 334 });
+      expect(g.allowed).toBe(false);
+      expect(g.reason).toBe('drawdown_unknown');
+    });
+
+    it('trades a self-imposed cap normally once drawdown state is known', () => {
+      const internal = { ...preset, dailyLossCapSource: 'internal' as const };
+      expect(
+        checkGate({ state: base, preset: internal, session: 'nyam', stepRisk: 334, drawdown: trailed }).allowed
+      ).toBe(true);
+    });
+
     it('runs after the session and count gates, not before', () => {
       // A blown account outside its session should still say 'outside_session':
       // the cheapest true reason is the most useful one.
