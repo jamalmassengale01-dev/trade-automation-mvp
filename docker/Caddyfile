@@ -1,0 +1,33 @@
+# Caddy fetches and renews Let's Encrypt certificates automatically. Set
+# API_DOMAIN, APP_DOMAIN and ACME_EMAIL in docker/.env before starting the
+# "public" profile.
+
+{
+	email {$ACME_EMAIL}
+}
+
+# API — receives the TradingView and Stripe webhooks.
+{$API_DOMAIN} {
+	reverse_proxy api:3001
+
+	# The dashboard is the only browser origin that should be calling this.
+	# CORS itself is enforced in the app from CORS_ORIGINS; this is defence
+	# in depth, not the primary control.
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		-Server
+	}
+}
+
+# Dashboard.
+{$APP_DOMAIN} {
+	reverse_proxy web:3000
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+}

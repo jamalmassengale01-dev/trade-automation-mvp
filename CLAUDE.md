@@ -908,6 +908,23 @@ approval. Credentials live in `broker_accounts.credentials` JSONB.
 
 ---
 
+## DEPLOYMENT
+
+Runs as a Docker stack: api, web, postgres, redis, plus an optional Caddy
+profile for HTTPS. Step-by-step for a fresh VPS is in `docs/DEPLOY.md`.
+
+Not a laptop. Once a bracket is placed the TP and SL live on Tradovate's
+servers, so a dead laptop does not leave a naked position — but it does stop
+the breakeven move after TP1, the end-of-day flatten (firms disclaim positions
+held through the close), the 3:00 AM ET London window, and every new signal.
+
+The one thing the system cannot do for itself: report its own death. The
+notification channel runs inside the process, so an external uptime check on
+`/health` is what catches "the whole thing is off". Silence looks identical to
+a quiet market.
+
+---
+
 ## TESTING APPROACH
 ```
 1. Use Tradovate DEMO environment for all dev/test

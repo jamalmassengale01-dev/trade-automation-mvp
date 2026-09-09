@@ -98,6 +98,38 @@ services:
     depends_on:
       - api
 
+  # ============================================
+  # Caddy — HTTPS termination
+  # ============================================
+  # Optional: `docker compose --profile public up -d`.
+  #
+  # TradingView will not POST to a bare IP or to plain HTTP, and Stripe
+  # requires HTTPS for webhook endpoints, so a public deployment needs TLS.
+  # Caddy obtains and renews Let's Encrypt certificates automatically, which
+  # is one fewer thing to remember in ninety days.
+  #
+  # Ports 3000/3001 stay published for local access during setup. Close them
+  # in the host firewall once Caddy is serving; see docs/DEPLOY.md.
+  caddy:
+    image: caddy:2-alpine
+    container_name: trade-automation-caddy
+    restart: unless-stopped
+    profiles: ["public"]
+    env_file:
+      - .env
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - web
+
 volumes:
   postgres_data:
   redis_data:
+  caddy_data:
+  caddy_config:
