@@ -41,6 +41,7 @@ import { cleanupExpiredSessions } from './services/session';
 import { eodFlattenTick } from './services/eodFlatten';
 import { testSessionOverride, effectiveSessionWindows } from './strategy/sessions';
 import { refreshEvalOutcomes } from './services/evalTracker';
+import { notificationSweep, externalChannelConfigured } from './services/notifications';
 
 const app = express();
 
@@ -184,6 +185,19 @@ async function startServer() {
       );
     }
 
+    // An unconfigured notification channel is not an error — the log channel
+    // always runs — but it must not be a silent one. Someone believing they
+    // will be told when an account blows, and not being told, is worse than
+    // knowing they have to look.
+    if (!externalChannelConfigured()) {
+      logger.warn(
+        'No external notification channel configured. Alerts will be written to ' +
+        'the notifications table and the log only — nothing will reach a phone or ' +
+        'inbox. Set NOTIFY_WEBHOOK_URL (Slack, Discord, ntfy, Zapier or any endpoint ' +
+        'accepting a JSON POST) to change that.'
+      );
+    }
+
     // Connect broker adapters
     await connectAllAdapters();
 
@@ -314,6 +328,23 @@ function startCleanupTasks(): void {
   };
   setInterval(sweepEvals, 60 * 60 * 1000);
   setTimeout(sweepEvals, 45 * 1000);
+
+  // Notifications. Every alert this system raises lands in risk_events, which
+  // records but does not tell anyone. This turns the trail into messages, with
+  // per-condition cooldowns so a standing halt re-raised every 15 minutes does
+  // not become 96 identical messages a day.
+  //
+  // Two minutes rather than every minute: nothing here is so urgent that a
+  // two-minute delay changes the outcome, and a slower sweep means a burst of
+  // related events collapses into fewer messages.
+  const runNotificationSweep = async () => {
+    const r = await notificationSweep();
+    if (r.sent > 0 || r.failed > 0) {
+      logger.info('Notification sweep', r);
+    }
+  };
+  setInterval(runNotificationSweep, 2 * 60 * 1000);
+  setTimeout(runNotificationSweep, 20 * 1000);
 
   // Rule reconciliation: compare each account's preset assumptions against
   // what the broker actually reports. Runs every 15 minutes so a wrong preset

@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { checkCanAddAccount, usageForFirm } from '../services/accountLimits';
 import { BrokerAccount } from '../types';
 import { query } from '../db';
 import { getBrokerAdapter } from '../brokers';
@@ -83,6 +84,19 @@ router.get('/:id', async (req: Request, res: Response) => {
  * POST /api/accounts
  * Create a new broker account
  */
+/** GET /api/accounts/limits/:propFirm — what this customer has used and has left. */
+router.get('/limits/:propFirm', async (req: Request, res: Response) => {
+  try {
+    const usage = await usageForFirm(req.user!.id, req.params.propFirm);
+    res.json({ success: true, data: { propFirm: req.params.propFirm, usage } });
+  } catch (error) {
+    routeLogger.error('Failed to read account limits', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    res.status(500).json({ success: false, error: 'Failed to read account limits' });
+  }
+});
+
 router.post('/', async (req: Request, res: Response) => {
   try {
     const { name, broker_type, credentials = {}, settings = {} } = req.body;
@@ -108,14 +122,56 @@ router.post('/', async (req: Request, res: Response) => {
       ...settings,
     };
 
+    // Prop-firm caps are per person. An account with no category — a mock
+    // broker, the generic copier path — counts against nothing and skips this.
+    const { account_category = null, account_size = null, prop_firm = null } = req.body;
+    if (account_category && prop_firm) {
+      const verdict = await checkCanAddAccount({
+        userId: req.user!.id,
+        propFirm: prop_firm,
+        category: account_category,
+        size: Number(account_size) || 0,
+      });
+      if (!verdict.allowed) {
+        // 409, not 400: the request is well-formed, it conflicts with what the
+        // firm allows. Worth refusing here rather than at the firm, because
+        // Phidias does not decline an over-cap account — it states that any
+        // account beyond the threshold "will be considered lost", so the money
+        // is spent before the rule bites.
+        res.status(409).json({
+          success: false,
+          error: verdict.reason,
+          usage: verdict.usage,
+          warning: verdict.sharedConnectionWarning,
+        });
+        return;
+      }
+      if (verdict.sharedConnectionWarning) {
+        routeLogger.warn('Adding account at a firm that counts limits by connection', {
+          propFirm: prop_firm, userId: req.user!.id,
+        });
+      }
+    }
+
     const result = await query(
-      `INSERT INTO broker_accounts (name, broker_type, credentials, settings, is_active)
-       VALUES ($1, $2, $3, $4, true)
-       RETURNING id, name, broker_type, is_active, is_disabled, settings, created_at`,
-      [name, broker_type, JSON.stringify(credentials), JSON.stringify(defaultSettings)]
+      `INSERT INTO broker_accounts
+         (user_id, name, broker_type, credentials, settings, account_category, account_size, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, true)
+       RETURNING id, name, broker_type, is_active, is_disabled, settings,
+                 account_category, account_size, created_at`,
+      [
+        // Previously unset, which created rows no non-admin could see: every
+        // read is scoped by user_id, so an ownerless account was invisible to
+        // the person who had just created it.
+        req.user!.id,
+        name, broker_type, JSON.stringify(credentials), JSON.stringify(defaultSettings),
+        account_category, account_size === null ? null : Number(account_size),
+      ]
     );
 
-    routeLogger.info('Created broker account', { name, broker_type, id: result.rows[0].id });
+    routeLogger.info('Created broker account', {
+      name, broker_type, id: result.rows[0].id, category: account_category,
+    });
 
     res.status(201).json({ success: true, data: result.rows[0] });
   } catch (error) {
