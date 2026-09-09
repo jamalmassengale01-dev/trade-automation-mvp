@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { rootSymbol, getInstrument, roundToTick, dollarsToPoints } from './instruments';
+import { drawdownState } from './drawdown';
 import { stepRisk, nextStep, classifyOutcome, clampStep } from './ladder';
 import { contractsFor, splitGroups, computeLevels, realizedPnl, avgPrice } from './sizing';
 import { getSession, brokerDayKey, etParts, toDayKey } from './sessions';
@@ -246,6 +247,60 @@ describe('gate', () => {
     expect(checkGate({ state: { ...base, dayRealizedPnl: -600 }, preset, session: 'nypm', stepRisk: 334 }).allowed).toBe(true);
     // step 3 ($668) after one loss of $334 → room $666 → blocked by $2
     expect(checkGate({ state: { ...base, dayRealizedPnl: -334 }, preset, session: 'nypm', stepRisk: 668 }).reason).toBe('dll_headroom');
+  });
+
+  describe('drawdown headroom', () => {
+    // Apex 50K that closed a day at 51,000: floor trailed to 49,000.
+    const trailed = drawdownState({
+      ddMode: 'eod_trailing', startBalance: 50_000, maxDrawdown: 2_000,
+      lockBuffer: 100, eodBalances: [51_000], currentEquity: 50_500,
+    });
+
+    it('blocks a step that fits the daily cap but not the drawdown room', () => {
+      // $668 is well inside the $1,000 daily cap, but only $500 sits above the
+      // trailed floor. Losing it would end the account, not the day.
+      const tight = drawdownState({
+        ddMode: 'eod_trailing', startBalance: 50_000, maxDrawdown: 2_000,
+        lockBuffer: 100, eodBalances: [51_000], currentEquity: 49_500,
+      });
+      expect(checkGate({ state: base, preset, session: 'nyam', stepRisk: 668 }).allowed).toBe(true);
+      expect(
+        checkGate({ state: base, preset, session: 'nyam', stepRisk: 668, drawdown: tight }).reason
+      ).toBe('drawdown_headroom');
+    });
+
+    it('allows a step that fits both', () => {
+      expect(checkGate({ state: base, preset, session: 'nyam', stepRisk: 334, drawdown: trailed }).allowed).toBe(true);
+    });
+
+    it('skips the check entirely when no drawdown state is supplied', () => {
+      // An account with no recorded history must behave as it did before,
+      // not be blocked by the absence of data.
+      expect(checkGate({ state: base, preset, session: 'nyam', stepRisk: 334 }).allowed).toBe(true);
+    });
+
+    it('reports the floor in the rejection so the cause is legible', () => {
+      // Must stay under the $1,000 daily cap, or the DLL gate rejects it first
+      // and the drawdown check is never reached.
+      const tight = drawdownState({
+        ddMode: 'eod_trailing', startBalance: 50_000, maxDrawdown: 2_000,
+        lockBuffer: 100, eodBalances: [51_000], currentEquity: 49_500,
+      });
+      const g = checkGate({ state: base, preset, session: 'nyam', stepRisk: 668, drawdown: tight });
+      expect(g.reason).toBe('drawdown_headroom');
+      expect(g.details).toMatchObject({ floor: 49_000, room: 500, stepRisk: 668 });
+    });
+
+    it('runs after the session and count gates, not before', () => {
+      // A blown account outside its session should still say 'outside_session':
+      // the cheapest true reason is the most useful one.
+      const dead = drawdownState({
+        ddMode: 'eod_trailing', startBalance: 50_000, maxDrawdown: 2_000,
+        lockBuffer: 100, eodBalances: [51_000], currentEquity: 48_000,
+      });
+      expect(checkGate({ state: base, preset, session: null, stepRisk: 334, drawdown: dead }).reason)
+        .toBe('outside_session');
+    });
   });
 });
 

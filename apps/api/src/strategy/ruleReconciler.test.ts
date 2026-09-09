@@ -169,6 +169,78 @@ describe('reconcileRules — drawdown', () => {
   });
 });
 
+describe('reconcileRules — trailing drawdown floor', () => {
+  const TRAILING: PresetAssumptions = { ...APEX_50K, ddMode: 'eod_trailing', safetyNetBuffer: 100 };
+
+  it('halts on an equity a static floor would have called healthy', () => {
+    // The account closed a day at 51,000, so its real floor is 49,000. Equity
+    // 48,900 is dead. The static model saw a 48,000 floor and $900 of room.
+    const input = {
+      snapshot: { cashBalance: 48900, realizedPnl: -600, equity: 48900 },
+      tracked: {
+        dayRealizedPnl: -600, cumulativePnl: -1100, ladderStep: 3,
+        eodBalances: [51000], historyComplete: true,
+      },
+    };
+    expect(reconcileRules(healthy({ ...input, preset: TRAILING })).verdict).toBe('halt');
+    expect(ids(reconcileRules(healthy({ ...input, preset: TRAILING })))).toContain('drawdown_breached');
+
+    // Same numbers, static preset: not a halt. This difference is the bug.
+    expect(reconcileRules(healthy({ ...input, preset: APEX_50K })).verdict).not.toBe('halt');
+  });
+
+  it('says the floor trailed, so the message is not confusing', () => {
+    const r = reconcileRules(
+      healthy({
+        preset: TRAILING,
+        snapshot: { cashBalance: 48900, realizedPnl: 0, equity: 48900 },
+        tracked: { dayRealizedPnl: 0, cumulativePnl: -1100, ladderStep: 1, eodBalances: [51000] },
+      })
+    );
+    const finding = r.findings.find((f) => f.id === 'drawdown_breached');
+    expect(finding?.message).toContain('trailed up from $48000');
+    expect(finding?.detail?.highWater).toBe(51000);
+  });
+
+  it('does not halt a profitable account whose floor has locked', () => {
+    const r = reconcileRules(
+      healthy({
+        preset: TRAILING,
+        snapshot: { cashBalance: 52500, realizedPnl: 0, equity: 52500 },
+        tracked: {
+          dayRealizedPnl: 0, cumulativePnl: 2500, ladderStep: 1,
+          eodBalances: [52100, 52500], historyComplete: true,
+        },
+      })
+    );
+    // Floor locked at 50,100 — $2,400 of room, so no drawdown finding at all.
+    expect(ids(r)).not.toContain('drawdown_breached');
+    expect(ids(r)).not.toContain('drawdown_within_one_day');
+  });
+
+  it('warns when the floor came from incomplete history', () => {
+    const r = reconcileRules(
+      healthy({
+        preset: TRAILING,
+        snapshot: { cashBalance: 50800, realizedPnl: 0, equity: 50800 },
+        tracked: {
+          dayRealizedPnl: 0, cumulativePnl: 800, ladderStep: 1,
+          eodBalances: [50800], historyComplete: false,
+        },
+      })
+    );
+    expect(ids(r)).toContain('drawdown_floor_understated');
+    expect(r.verdict).toBe('warn');
+  });
+
+  it('leaves a brand-new account at its initial floor', () => {
+    const r = reconcileRules(healthy({ preset: TRAILING, tracked: {
+      dayRealizedPnl: 0, cumulativePnl: 0, ladderStep: 1, eodBalances: [], historyComplete: true,
+    } }));
+    expect(r.verdict).toBe('ok');
+  });
+});
+
 describe('reconcileRules — inactivity', () => {
   // Apex lists "Inactivity Policy: YES" on both eval and PA accounts, so an
   // idle account can be closed. The threshold is per-preset because Apex's

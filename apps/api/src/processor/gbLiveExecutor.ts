@@ -28,6 +28,8 @@ import {
   checkGate, checkSniperGate, resetIfNewDay, AccountDayState,
   remainingTarget, isSniperEligible, sniperRisk,
 } from '../strategy/gate';
+import { accountDrawdownState } from '../services/accountDrawdown';
+import type { DdMode } from '../strategy/drawdown';
 import { bracketManager } from '../strategy/bracketManager';
 import { shouldBlockTrade } from '../strategy/ruleReconciler';
 import { getLatestRuleCheck } from '../services/ruleReconciliation';
@@ -94,6 +96,10 @@ interface AccountWithPreset extends Record<string, any> {
   p_sniper_risk_pct: string | number | null;
   p_sniper_tp_r: string | number | null;
   p_sniper_max_trades_day: number | null;
+  p_start_balance: string | number | null;
+  p_max_drawdown: string | number | null;
+  p_dd_mode: DdMode | null;
+  p_safety_net_buffer: string | number | null;
 }
 
 export async function executeGbLiveAlert(input: GbExecInput): Promise<GbExecResult> {
@@ -151,7 +157,11 @@ async function processAccount(
             p.pass_zone_buffer      AS p_pass_zone_buffer,
             p.sniper_risk_pct       AS p_sniper_risk_pct,
             p.sniper_tp_r           AS p_sniper_tp_r,
-            p.sniper_max_trades_day AS p_sniper_max_trades_day
+            p.sniper_max_trades_day AS p_sniper_max_trades_day,
+            p.start_balance         AS p_start_balance,
+            p.max_drawdown          AS p_max_drawdown,
+            p.dd_mode               AS p_dd_mode,
+            p.safety_net_buffer     AS p_safety_net_buffer
      FROM broker_accounts ba
      LEFT JOIN presets p ON p.id = ba.preset_id
      WHERE ba.id = $1`,
@@ -285,6 +295,13 @@ async function processAccount(
     sniperRiskPct: Number(acct.p_sniper_risk_pct ?? 50),
     sniperTpR: Number(acct.p_sniper_tp_r ?? 1.0),
     sniperMaxTradesDay: Number(acct.p_sniper_max_trades_day ?? 2),
+    startBalance: Number(acct.p_start_balance ?? 0),
+    maxDrawdown: Number(acct.p_max_drawdown ?? 0),
+    ddMode: (acct.p_dd_mode as DdMode | null) ?? 'static_fixed',
+    safetyNetBuffer:
+      acct.p_safety_net_buffer === null || acct.p_safety_net_buffer === undefined
+        ? null
+        : Number(acct.p_safety_net_buffer),
   };
 
   const remaining = remainingTarget(preset.targetProfit, Number(acct.cumulative_pnl ?? 0));
@@ -313,7 +330,32 @@ async function processAccount(
     risk = stepRisk(preset.baseRisk, state.ladderStep, { capStep: preset.capStep, multipliers: preset.multipliers, dailyLossCap: preset.dailyLossCap });
     tp1R = preset.tp1R;
     tp2R = preset.tp2R;
-    const gate = checkGate({ state, preset: { dailyLossCap: preset.dailyLossCap, maxTradesPerDay: preset.maxTradesPerDay }, session, stepRisk: risk });
+    // The drawdown floor is only meaningful when the preset actually defines
+    // one. A missing max_drawdown means the account is not prop-firm sized, so
+    // the gate skips the check rather than inventing a floor at zero and
+    // rejecting every signal.
+    const cumulativePnl = Number(acct.cumulative_pnl ?? 0);
+    const drawdown = preset.maxDrawdown > 0
+      ? await accountDrawdownState(
+          acct.id,
+          {
+            startBalance: preset.startBalance,
+            maxDrawdown: preset.maxDrawdown,
+            ddMode: preset.ddMode,
+            safetyNetBuffer: preset.safetyNetBuffer,
+          },
+          preset.startBalance + cumulativePnl,
+          cumulativePnl
+        )
+      : undefined;
+
+    const gate = checkGate({
+      state,
+      preset: { dailyLossCap: preset.dailyLossCap, maxTradesPerDay: preset.maxTradesPerDay, dllBufferPct: preset.dllBufferPct },
+      session,
+      stepRisk: risk,
+      drawdown,
+    });
     if (!gate.allowed) {
       await riskEvent(acct.id, strategyId, `gb_${gate.reason}`, gate.message ?? gate.reason ?? 'gate', { ...gate.details, session, step: state.ladderStep, stepRisk: risk });
       return { status: 'rejected', reason: gate.reason };

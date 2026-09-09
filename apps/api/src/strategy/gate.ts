@@ -1,4 +1,5 @@
 import type { Session } from './sessions';
+import { drawdownHeadroom, type DrawdownState } from './drawdown';
 
 export interface AccountDayState {
   ladderStep: number;
@@ -24,6 +25,7 @@ export type GateReason =
   | 'session_used'
   | 'max_trades_day'
   | 'dll_headroom'
+  | 'drawdown_headroom'
   | 'stale_signal'
   | 'day_locked_out'
   | 'trade_already_open'
@@ -98,6 +100,9 @@ export function checkGate(input: {
   preset: GatePreset;
   session: Session | null;
   stepRisk: number;
+  /** Current drawdown floor and room. Omit when unknown — the gate then skips
+   *  the drawdown check rather than guessing at a floor. */
+  drawdown?: DrawdownState;
 }): GateResult {
   const { state, preset, session, stepRisk } = input;
   const maxTrades = preset.maxTradesPerDay ?? 3;
@@ -126,6 +131,29 @@ export function checkGate(input: {
       },
     };
   }
+
+  // Drawdown last, and separate from the DLL, because the two failures are not
+  // equivalent. Breaching the daily cap costs a day. Breaching the drawdown
+  // floor ends the account, and on a trailing floor there are states where the
+  // drawdown room is SMALLER than the daily room — a profitable account that
+  // has given some back is exactly that case. Checked only when the caller
+  // supplies drawdown state, so accounts without recorded history behave as
+  // before rather than being blocked by an absence of data.
+  if (input.drawdown) {
+    const dd = drawdownHeadroom(input.drawdown, stepRisk, preset.dllBufferPct ?? 0);
+    if (!dd.allowed) {
+      return {
+        allowed: false,
+        reason: 'drawdown_headroom',
+        message: dd.reason ?? 'Step risk exceeds remaining drawdown room',
+        details: {
+          stepRisk, floor: input.drawdown.floor, room: input.drawdown.room,
+          roomAfter: dd.roomAfter, bufferPct: preset.dllBufferPct ?? 0,
+        },
+      };
+    }
+  }
+
   return { allowed: true };
 }
 

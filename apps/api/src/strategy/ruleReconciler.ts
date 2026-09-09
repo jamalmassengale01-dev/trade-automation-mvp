@@ -27,6 +27,8 @@
  * Pure: no db, no io, no clock. `now` is injected.
  */
 
+import { drawdownState, DdMode } from './drawdown';
+
 export type Verdict = 'ok' | 'warn' | 'halt';
 
 export interface BrokerSnapshot {
@@ -43,6 +45,11 @@ export interface TrackedState {
   dayRealizedPnl: number;
   cumulativePnl: number;
   ladderStep: number;
+  /** End-of-day balances, oldest first, for the trailing drawdown floor.
+   *  Empty is treated as a brand-new account whose floor has not trailed. */
+  eodBalances?: number[];
+  /** False when recorded history does not cover the account's whole life. */
+  historyComplete?: boolean;
 }
 
 export interface PresetAssumptions {
@@ -52,6 +59,13 @@ export interface PresetAssumptions {
   startBalance: number;
   maxDrawdown: number;
   dailyLossCap: number;
+  /** How the drawdown floor behaves. Defaults to static — the safe assumption
+   *  is NOT that it trails, because a trailing floor read as static overstates
+   *  room, while a static floor read as trailing merely never moves. */
+  ddMode?: DdMode;
+  /** Dollars above the starting balance at which a trailing floor locks.
+   *  Apex uses 100. Null/undefined means it never locks. */
+  safetyNetBuffer?: number | null;
   phase: 'eval' | 'funded';
   /** Null means no human has ever confirmed these numbers. */
   verifiedAt: Date | null;
@@ -208,25 +222,59 @@ export function reconcileRules(input: ReconcileInput): ReconcileResult {
     });
   }
 
-  // ---- 4. Drawdown already breached ----------------------------------
-  const ddFloor = round2(preset.startBalance - preset.maxDrawdown);
-  if (snapshot.equity <= ddFloor) {
+  // ---- 4. Drawdown ----------------------------------------------------
+  // The floor TRAILS on an Apex EOD account, so it is derived from the
+  // account's end-of-day history rather than assumed to sit at
+  // start - maxDrawdown. A profitable account's real floor is higher than the
+  // static one, which means less room than a static model reports — and room
+  // that is not there is how an account gets ended by a trade the system
+  // authorised.
+  const dd = drawdownState({
+    ddMode: preset.ddMode ?? 'static_fixed',
+    startBalance: preset.startBalance,
+    maxDrawdown: preset.maxDrawdown,
+    lockBuffer: preset.safetyNetBuffer ?? null,
+    eodBalances: tracked.eodBalances ?? [],
+    currentEquity: snapshot.equity,
+    historyComplete: tracked.historyComplete,
+  });
+
+  if (dd.room <= 0) {
     add({
       id: 'drawdown_breached',
       severity: 'halt',
       message:
-        `Equity $${round2(snapshot.equity)} is at or below the $${ddFloor} drawdown floor ` +
-        `($${preset.startBalance} - $${preset.maxDrawdown}). The account is blown; stop trading it.`,
-      detail: { equity: round2(snapshot.equity), floor: ddFloor },
+        `Equity $${round2(snapshot.equity)} is at or below the $${dd.floor} drawdown floor` +
+        (dd.floor > preset.startBalance - preset.maxDrawdown
+          ? ` (trailed up from $${round2(preset.startBalance - preset.maxDrawdown)} behind a ` +
+            `$${dd.highWater} high)`
+          : ` ($${preset.startBalance} - $${preset.maxDrawdown})`) +
+        '. The account is blown; stop trading it.',
+      detail: { equity: round2(snapshot.equity), floor: dd.floor, highWater: dd.highWater },
     });
-  } else if (snapshot.equity - ddFloor < preset.dailyLossCap) {
+  } else if (dd.room < preset.dailyLossCap) {
     add({
       id: 'drawdown_within_one_day',
       severity: 'warn',
       message:
-        `Only $${round2(snapshot.equity - ddFloor)} of drawdown room left, less than one full ` +
+        `Only $${dd.room} of drawdown room left above the $${dd.floor} floor, less than one full ` +
         `daily loss cap ($${preset.dailyLossCap}). A single bad day ends the account.`,
-      detail: { room: round2(snapshot.equity - ddFloor), dailyLossCap: preset.dailyLossCap },
+      detail: { room: dd.room, floor: dd.floor, dailyLossCap: preset.dailyLossCap },
+    });
+  }
+
+  // A floor computed from partial history is too low, so the room above it is
+  // overstated. Warn rather than halt: the account is probably fine, but the
+  // number guarding it cannot be trusted until history is backfilled.
+  if (dd.understated) {
+    add({
+      id: 'drawdown_floor_understated',
+      severity: 'warn',
+      message:
+        `The $${dd.floor} trailing floor was derived from incomplete daily history, so it may be ` +
+        'too low and the room above it too generous. Backfill account_daily_pnl, or treat this ' +
+        "account's drawdown room as unverified.",
+      detail: { floor: dd.floor, highWater: dd.highWater },
     });
   }
 

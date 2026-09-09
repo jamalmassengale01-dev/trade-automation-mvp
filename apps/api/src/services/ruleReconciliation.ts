@@ -11,6 +11,8 @@
  */
 
 import { query } from '../db';
+import { type DdMode } from '../strategy/drawdown';
+import { eodHighWater } from './accountDrawdown';
 import { getConnectedBrokerAdapter } from '../brokers';
 import { BrokerAccount, BrokerType } from '../types';
 import {
@@ -51,6 +53,8 @@ interface AccountRow extends Record<string, unknown> {
   p_verified_at: Date | null;
   p_stale_after_days: number | null;
   p_inactivity_alert_days: number | null;
+  p_dd_mode: DdMode | null;
+  p_safety_net_buffer: string | number | null;
   created_at: Date | null;
 }
 
@@ -69,7 +73,9 @@ export async function reconcileAccountRules(accountId: string): Promise<RuleChec
             p.phase            AS p_phase,
             p.verified_at      AS p_verified_at,
             p.stale_after_days AS p_stale_after_days,
-            p.inactivity_alert_days AS p_inactivity_alert_days
+            p.inactivity_alert_days AS p_inactivity_alert_days,
+            p.dd_mode          AS p_dd_mode,
+            p.safety_net_buffer AS p_safety_net_buffer
      FROM broker_accounts ba
      LEFT JOIN presets p ON p.id = ba.preset_id
      WHERE ba.id = $1`,
@@ -102,6 +108,14 @@ export async function reconcileAccountRules(accountId: string): Promise<RuleChec
       startBalance: num(acct.p_start_balance),
       maxDrawdown: num(acct.p_max_drawdown),
       dailyLossCap: num(acct.p_daily_loss_cap),
+      ddMode: acct.p_dd_mode ?? 'static_fixed',
+      // presets.safety_net_buffer is NOT NULL DEFAULT 100, so null here means
+      // no preset joined at all. Fall back to a floor that never stops
+      // trailing: that yields a HIGHER floor and less room, which is the safe
+      // direction to be wrong in when the rules are unknown.
+      safetyNetBuffer: acct.p_safety_net_buffer === null || acct.p_safety_net_buffer === undefined
+        ? null
+        : num(acct.p_safety_net_buffer),
       phase: (acct.p_phase as 'eval' | 'funded') ?? 'eval',
       verifiedAt: acct.p_verified_at ? new Date(acct.p_verified_at) : null,
       staleAfterDays: acct.p_stale_after_days ?? 90,
@@ -123,6 +137,13 @@ export async function reconcileAccountRules(accountId: string): Promise<RuleChec
       ? Math.floor((Date.now() - new Date(acct.created_at).getTime()) / DAY_MS)
       : null;
 
+    // The trailing drawdown floor, from the same helper the pre-trade gate
+    // uses. Only the high-water end-of-day balance can move the floor, so this
+    // is one aggregate rather than the full daily history.
+    const { highWaterPnl, totalPnl } = await eodHighWater(acct.id);
+    const eodBalances = [num(acct.p_start_balance) + highWaterPnl];
+    const historyComplete = Math.abs(totalPnl - num(acct.cumulative_pnl)) < 0.01;
+
     const result = reconcileRules({
       snapshot: {
         cashBalance: info.cashBalance,
@@ -133,6 +154,8 @@ export async function reconcileAccountRules(accountId: string): Promise<RuleChec
         dayRealizedPnl: num(acct.day_realized_pnl),
         cumulativePnl: num(acct.cumulative_pnl),
         ladderStep: acct.ladder_step ?? 1,
+        eodBalances,
+        historyComplete,
       },
       preset,
       now: new Date(),
