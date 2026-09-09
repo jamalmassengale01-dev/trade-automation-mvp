@@ -9,7 +9,8 @@
 
 **EdgePilot** is a SaaS platform that gives prop firm traders access to the GB LIVE v5 trading system plus fully automated execution — all in one subscription. Customers connect their Tradovate-based prop firm accounts (Apex Trader Funding, Tradeify, MFFU), pay a monthly subscription, and the system handles signal detection and order execution automatically.
 
-The founder (Jamal) built and runs the GB LIVE system on his own Apex fleet of up to 20 accounts. EdgePilot productizes that system for other traders.
+The founder (Jamal) designed the GB LIVE strategy. EdgePilot is the software that
+executes it.
 
 **Revenue model:** Monthly subscription per customer. $97–197/month target price point.
 
@@ -17,7 +18,45 @@ The founder (Jamal) built and runs the GB LIVE system on his own Apex fleet of u
 - Proprietary strategy (ICT Golden Bullet with custom entry/exit logic)
 - Strategy logic stays server-side — customers never see the Pine Script
 - All-in-one: signal + execution + dashboard, no TradingView or PMT subscription needed
-- Battle-tested on live Apex eval accounts since June 2026
+
+---
+
+## ⚠ READ THIS BEFORE USING ANY NUMBER IN THIS FILE
+
+**The strategy has no live track record.** As of 8 September 2026 the founder has
+not traded GB LIVE — no live evaluation, no funded account, no recorded fills.
+Earlier versions of this file described it as "battle-tested on live Apex eval
+accounts since June 2026" and referred to a founder's fleet as a live proof of
+concept. That was not accurate and has been removed.
+
+What follows from that:
+
+- **Every performance figure here is a projection from assumptions, not a
+  measurement.** The 85.5% pass rate, the 60% win rate, the ~$3,807/month per
+  account and all fleet totals derive from a Monte Carlo whose inputs have never
+  been checked against a filled order.
+- **The 85.5% figure does not reproduce.** `npm run eval:sim` runs a Monte Carlo
+  over the real ladder, drawdown and gate code. Reaching 85.5% requires a win
+  rate above 65% AND essentially every winning trade running the full 2R to TP2.
+  At a 60% win rate with 70% of winners reaching TP2 — already generous — the
+  pass rate is ~43%. Treat 85.5% as unreachable until measured otherwise.
+- **Two numbers are needed and neither exists yet:** the share of trades that
+  reach TP1 (the win rate), and of those, the share that reach TP2 rather than
+  stopping the runner at breakeven. The second matters as much as the first —
+  it moves the pass rate from 14% to 43% at a fixed 60% win rate — and has never
+  been tracked.
+- **Do not use any figure here in customer-facing material.** Not at 50%, not
+  with a disclaimer. There is nothing behind them yet.
+
+None of this affects the software. The ladder, drawdown floor, gates, prop-firm
+math and reconciliation are tested and correct independently of whether the
+strategy has an edge — that is what they are for.
+
+**Cheapest path to real numbers, in order:** TradingView Strategy Tester on the
+GB LIVE script (free, treat as a ceiling — backtests flatter themselves on fills
+and intrabar ordering), then ONE evaluation rather than a five-pack. A Phidias
+eval at $116 has no expiry clock and unlimited $116 resets, which makes it a
+better instrument for measuring than an Apex eval with a 30-day deadline.
 
 ---
 
@@ -342,8 +381,11 @@ base_risk:      334    (DLL/3)
 max_contracts:  60     (micros, eval limit)
 dd_mode:        eod_trailing
 cap_step:       3
-pass_rate:      85.5%  (MC verified)
-avg_days_pass:  16.5
+pass_rate:      UNMEASURED — see the warning at the top of this file.
+                85.5% was an assumption, and npm run eval:sim does not
+                reproduce it. ~43% at a 60% win rate with 70% of winners
+                reaching TP2.
+avg_days_pass:  ~14 trading days (p50) under those same assumptions
 ```
 
 ### Apex 50K PA Funded
@@ -378,7 +420,7 @@ Every customer account follows this lifecycle:
 ```
 BUY EVAL ($109)
     ↓
-PASS EVAL (~16.5 days avg, 85.5% pass rate)
+PASS EVAL (~14 trading days p50; pass rate UNMEASURED, see top of file)
     ↓
 FUNDED PA ACTIVATED
     ↓
@@ -406,9 +448,10 @@ Payout #5:  $2,500   cumulative: $10,000
 Payout #6:  $3,000   cumulative: $13,000  ← PA closes
 ```
 
-Total extractable per PA cycle: **$13,000**
-PA lifecycle: ~3 months (6 payouts × ~14 days each)
-Monthly income equivalent: ~$3,807/account (12-month average, blow-adjusted)
+Total extractable per PA cycle: **$13,000** (this part is a published Apex rule)
+PA lifecycle: ~3 months IF every payout is earned on schedule — which requires
+an edge that has not been measured. The $13,000 is a ceiling the rules permit,
+not an amount the strategy has been shown to produce.
 
 ---
 
@@ -443,16 +486,34 @@ Only profit ABOVE safety net ($52,100) is eligible for payout.
 
 ---
 
-### Eval Pass Rate Statistics (Monte Carlo, 20,000 simulations)
+### Eval Pass Rate — projections, not statistics
+
+The figures below come from `npm run eval:sim` (apps/api/src/strategy/
+evalMonteCarlo.ts), which simulates against the REAL stepRisk, drawdownState
+and dllHeadroom the executor calls. They are only as good as the assumed edge,
+which has never been measured. Re-run it rather than quoting a row.
+
+Apex 50K, 30-day clock, 20,000 runs, seed 42:
 
 ```
-Pass rate:           85.5%
-Blown rate:          14.5%
-Avg days to pass:    16.5 trading days (~3.5 calendar weeks)
-Fast (P10):          7 days
-Slow (P90):          30 days
-Expected cost per funded account: $127 (109/0.855)
+win rate / winners reaching TP2   EV per trade   pass rate   p50 days
+  55% / 45%                          -0.01R         6.7%        16
+  60% / 45%                           0.07R        14.2%        16
+  60% / 70%                           0.22R        42.9%        14
+  65% / 85%                           0.42R        73.3%        12
+  65% / 100%                          0.51R        80.2%        10
 ```
+
+The old figures in this file — 85.5% pass, 14.5% blown, 16.5 days, $127 per
+funded account — are above everything in that grid. They are not reproducible
+and should not be used.
+
+**Failure mode, corrected.** Accounts do not usually blow. The drawdown gate
+refuses any trade larger than the remaining room, so the floor is rarely
+breached; instead room falls below the minimum step risk, every signal is
+declined, and the account can never trade back. The simulator reports this
+separately as `seizedRate`. A seized account is finished — counting it as
+"still open" reports a dead account as alive.
 
 **The Eval Rush option ($500 base risk instead of $334):**
 ```
@@ -483,13 +544,19 @@ At that point: income covers all subsequent eval costs.
 Monthly overhead ($110 TradingView + PMT) becomes irrelevant at 1+ funded accounts.
 ```
 
-**Fleet income milestones:**
+**Fleet income milestones — REMOVED**
+
+The per-account monthly figure these were built from was an assumption, not a
+measurement, so multiplying it by 5, 10 and 20 multiplied the assumption too.
+See the warning at the top of this file.
+
+What is real is the account CEILING per firm, which is a published rule:
 ```
-1 funded account:   ~$3,807/mo
-5 funded accounts:  ~$19,035/mo
-10 funded accounts: ~$38,070/mo
-20 funded accounts: ~$76,140/mo (Apex maximum)
+Apex:     20 PAs
+Phidias:  5 CASH Fundamental + 5 CASH Premium + 5 E2L, counted per person,
+          company OR Internet connection — a shared server is one connection
 ```
+Enforced by apps/api/src/strategy/accountLimits.ts.
 
 ---
 
@@ -612,46 +679,52 @@ EdgePilot should automate or alert on these events:
 
 ---
 
-### MC-Verified Income Numbers (20,000 simulations)
+### Income Projections — DO NOT USE IN MARKETING
 
-Use these for all customer-facing projections and marketing:
+These are arithmetic on the firm's published payout rules multiplied by an
+assumed edge that has never been measured. They are useful for comparing FIRMS
+against each other, because the rules half is real. They are not evidence that
+any of it is achievable.
 
 ```
-Per account:
-  Monthly income:        ~$3,807/mo (blow-adjusted, 100% split)
-  PA total:              $13,000 per 3-month cycle
-  Eval pass rate:        85.5%
-  Blown rate:            14.5%
-  Cost per funded acct:  ~$127
-  Monthly blow risk:     1.2% per funded account
+Apex 50K PA (rules half, real):
+  PA total:              $13,000 over 6 payouts, then the PA closes
+  Payout schedule:       1500 / 1500 / 2000 / 2500 / 2500 / 3000, 100% split
+  Qualifying day:        >= $250 net
 
-Fleet projections (honest, MC-verified):
-  5 accounts:   ~$19,000/mo
-  10 accounts:  ~$38,000/mo
-  20 accounts:  ~$76,000/mo
+Phidias Premium 50K CASH (rules half, real):
+  Payout cap:            $2,000 per cycle, 5 trading days between payouts
+  Split:                 75/80/85/90/100% by payout number, 100% from the 5th
+  Qualifying day:        >= $150 net
+  The CASH account does NOT close — no six-payout ceiling
+  Max 5 CASH Fundamental + 5 CASH Premium + 5 E2L per person/company/IP
 
-  ⚠ These numbers assume 60% win rate which is UNVALIDATED from live data.
-  Always present these as projections, not guarantees.
-  Customer marketing should use conservative figures (~50% of above).
+Earnings per account (assumed edge, NOT measured):
+  Anything of the form "$X per month per account" depends entirely on the win
+  rate and the TP2 share. Until both are measured, no such figure belongs in
+  this file, a pitch deck, or a customer-facing page.
 ```
+
+Previous versions listed ~$3,807/account/month and fleet totals of $19k / $38k /
+$76k as "MC-verified". They were not verified against anything. Removed.
 
 ---
 
-### Founder's Fleet (Reference Implementation)
+### Founder's Fleet — does not exist yet
 
-Jamal's personal setup is EdgePilot's live proof of concept.
-Everything built must work on his accounts first.
+There is no live fleet. No evaluation is running, no funded account exists, and
+nothing has been traded since before June 2026. Anything in this repository
+that reads as though a live reference implementation exists is wrong.
+
+The intent remains to run the founder's own accounts first, and everything
+built should work there before it is offered to anyone else. That is a plan,
+not a status.
 
 ```
-Prop firm:      Apex Trader Funding
-Account type:   50K EOD Trail (No Activation Fee)
-Eval cost:      $109 per eval (with sale code — verify current pricing)
-Max accounts:   20 PAs
-Current status: Restarting September 15, 2026 (5-pack purchase)
-Expected:       4.3 funded accounts from first 5-pack
-                Monthly income at 10 accounts: ~$38,000
-                Fleet target: 20 accounts by January 1, 2027
-
+Considered:     Apex 50K EOD Trail 5-pack ($545) — NOT purchased
+Alternative:    ONE Phidias eval ($116, no expiry, unlimited $116 resets) as a
+                measuring instrument before committing to a pack
+Blocked on:     a measured win rate and TP2 share (see top of file)
 ```
 
 ---
@@ -675,17 +748,26 @@ Fleet:      $197/mo — up to 20 broker accounts, all presets + priority support
 
 ### Account Limits
 ```
-- Max 20 Apex PAs per Tradovate account (Apex rule)
-- EdgePilot enforces this per customer
+- Apex: max 20 PAs per Tradovate account (Apex rule)
+- Phidias: 5 CASH Fundamental + 5 CASH Premium + 5 E2L, evaluations uncapped.
+  150K CASH counts DOUBLE against its category; E2L 150K does not.
+- Phidias counts those limits per person, company OR Internet connection, and
+  across anyone at the same address or IP. A shared EdgePilot server presents as
+  ONE connection, so routing many customers from one host could be read as one
+  party holding all their accounts. Per-customer egress IPs would be required.
+- Modelled in apps/api/src/strategy/accountLimits.ts (category + weight +
+  cross-limit). NOT yet wired to account creation — that needs a category
+  column on broker_accounts.
 - Each customer can have multiple Tradovate accounts (different prop firms)
 ```
 
 ---
 
-## CURRENT OWNER SETUP (reference / dogfood)
+## OWNER SETUP (intended configuration — not currently running)
 
-Jamal's personal fleet uses this system on his own Apex accounts.
-This is the reference implementation — his setup should always work perfectly.
+The configuration below is what the founder's own accounts are intended to use.
+Nothing is live against it today. Keep it accurate as a target; do not read it
+as a description of a running system.
 
 ```
 Webhook (Phase 1):  https://api.pickmytrade.trade/v2/add-trade-data-latest?t=<REDACTED>
@@ -767,7 +849,16 @@ trade-automation-mvp/
 │   │       │   ├── alertProcessorHardened.ts
 │   │       │   ├── gbLiveExecutor.ts  ← per-account GB path
 │   │       │   └── orderProcessorHardened.ts
-│   │       ├── services/symbolResolver.ts ← MNQ1! → MNQM6
+│   │       ├── services/
+│       │   ├── symbolResolver.ts      ← MNQ1! → MNQM6
+│       │   ├── accountDrawdown.ts     ← EOD high-water → live floor (gate + reconciler)
+│       │   ├── tradovatePreflight.ts  ← read-only walk of the order path
+│       │   ├── ruleReconciliation.ts  ← scheduled sweep, persists verdicts
+│       │   ├── eodFlatten.ts          ← per-firm flatten window
+│       │   ├── evalTracker.ts, launchpad.ts, catalog.ts, session.ts, password.ts
+│       ├── scripts/
+│       │   ├── tradovatePreflight.ts  ← npm run tradovate:preflight
+│       │   └── evalSim.ts             ← npm run eval:sim
 │   │       ├── routes/                ← accounts, strategies, gb, alerts, orders…
 │   │       └── db/
 │   │           ├── schema.sql, schema_hardening.sql, schema_gblive.sql
@@ -776,6 +867,40 @@ trade-automation-mvp/
 ├── packages/shared-types/             ← shared TS types
 └── docker/docker-compose.yml          ← postgres + redis
 ```
+
+### Tradovate API access — real prerequisites
+
+Getting an API key is not free and not instant. Per Tradovate/NinjaTrader docs:
+an **active API Access add-on (~$25/mo)** AND a **live funded account with a
+$1,000 minimum balance**. A brand-new personal Tradovate application shows "No
+API keys found" until both are satisfied.
+
+A personal Tradovate account is ALSO not the account that trades a prop firm
+fleet — prop accounts are provisioned under credentials the firm issues.
+`npm run tradovate:preflight` detects this case explicitly: authenticated but
+zero accounts means the login owns nothing tradable.
+
+### Prop firm automation policy — UNRESOLVED, affects the business model
+
+Apex's Prohibited Activities page describes automation as prohibited on all
+account types, including "pre-configured bots, scripts, or strategies that
+place, modify, or cancel orders based on preset conditions, signals, or market
+events". Vendor sites selling webhook bridges describe the same rules as
+permitting supervised semi-automation. The vendor has a commercial interest in
+that reading; verify against the firm's own page, not a review site.
+
+Across Apex, Phidias and TradeDay the consistent line is: **your own strategy,
+supervised = permitted; third-party or purchased bots = prohibited.** Jamal
+running GB LIVE on his own accounts sits on the permitted side at all three.
+Selling it to subscribers who run it on theirs sits on the prohibited side at
+all three. Phidias is the one explicit exception on the execution half — its
+rules state "You may use third-party copy trading software" — but that is
+permission to COPY trades, not to generate them unattended, and the same
+paragraph reserves the right to suspend "identical strategies exceeding the
+maximum allowed capital".
+
+This is a business-model question, not an implementation detail. Resolve it
+before building further on the SaaS assumption.
 
 Tradovate auth note: Phase 1 uses **API key + dedicated password** (`/auth/accesstokenrequest`
 with cid/sec), not the OAuth redirect flow — OAuth registration requires NinjaTrader partner
@@ -803,5 +928,26 @@ approval. Credentials live in `broker_accounts.credentials` JSONB.
 
 ---
 
-*EdgePilot | GB LIVE v5 | Built by Jamal | September 2026*
+### Open questions — unresolved, listed so they are not rediscovered
+
+```
+1. Win rate and TP2 share      — unmeasured. Blocks every projection.
+2. Automation policy           — see the compliance section. Blocks the SaaS
+                                 business model, not the personal use case.
+3. Tradovate credentials       — none yet. $1,000 + $25/mo add-on required.
+                                 Nothing here has ever placed a real order.
+4. Notifications               — no channel exists. Every alert this system
+                                 raises lands in risk_events and is seen only
+                                 by someone looking at a dashboard.
+5. Stripe billing              — untouched.
+6. Phidias "Professional Intraday" — may imply professional-tier market data
+                                 fees. Unconfirmed.
+7. Phidias valid-combination #3 — the firm's own example implies 6 weighted
+                                 Fundamental slots against a cap of 5. Ask them.
+```
+
+---
+
+*EdgePilot | GB LIVE v5 | Built by Jamal*
+*Last corrected: 9 September 2026 — performance claims removed as unmeasured.*
 *This file is the single source of truth for Claude Code sessions on this project.*
