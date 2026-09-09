@@ -28,7 +28,8 @@ export const VERSIONED_PRESET_FIELDS = [
   // moved on.
   'daily_loss_cap_source', 'safety_net_buffer', 'consistency_pct',
   'min_trading_days', 'qualifying_day_threshold', 'required_qualifying_days',
-  'min_payout', 'payout_schedule', 'scaling_tiers', 'inactivity_alert_days',
+  'min_payout', 'payout_schedule', 'payout_schedule_repeats', 'split_schedule',
+  'scaling_tiers', 'inactivity_alert_days',
   'broker_day_tz', 'broker_day_hour', 'flatten_minute',
 ] as const;
 

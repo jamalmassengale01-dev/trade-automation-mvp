@@ -51,6 +51,9 @@ interface AccountRow extends Record<string, unknown> {
   p_safety_net_buffer: string | number | null;
   p_consistency_pct: string | number | null;
   p_min_trading_days: number | null;
+  p_payout_schedule_repeats: boolean | null;
+  p_split_schedule: number[] | null;
+  p_profit_split: string | number | null;
   p_payout_schedule: number[] | null;
 }
 
@@ -67,6 +70,9 @@ const ACCOUNT_SQL = `
          p.min_payout               AS p_min_payout,
          p.safety_net_buffer        AS p_safety_net_buffer,
          p.payout_schedule          AS p_payout_schedule,
+         p.payout_schedule_repeats  AS p_payout_schedule_repeats,
+         p.split_schedule           AS p_split_schedule,
+         p.profit_split             AS p_profit_split,
          p.consistency_pct          AS p_consistency_pct,
          p.min_trading_days         AS p_min_trading_days
   FROM broker_accounts ba
@@ -156,6 +162,9 @@ async function buildStatus(acct: AccountRow): Promise<AccountPayoutStatus> {
       ? 0
       : num(acct.p_consistency_pct),
     payoutSchedule: acct.p_payout_schedule,
+    payoutScheduleRepeats: acct.p_payout_schedule_repeats === true,
+    splitSchedule: acct.p_split_schedule ?? null,
+    profitSplit: num(acct.p_profit_split, 1),
   };
 
   const eligibility = payoutEligibility({

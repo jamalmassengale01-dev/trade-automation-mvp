@@ -44,8 +44,61 @@ export interface PayoutRules {
   minPayout: number;
   /** e.g. 50 => no single day may be >= 50% of profit since the last payout. */
   consistencyPct: number;
-  /** Per-payout caps, in order. Length is the maximum number of payouts. */
+  /**
+   * Per-payout caps, in order. Length is the maximum number of payouts UNLESS
+   * `payoutScheduleRepeats` is set.
+   */
   payoutSchedule: number[];
+  /**
+   * True when the schedule is a repeating cycle rather than a finite list.
+   *
+   * Apex is finite: six payouts totalling $13,000 and the Performance Account
+   * closes. Phidias is not — the $2,000 cap is per cycle and the CASH account
+   * keeps going, with their rules stating plainly that "there is no financial
+   * penalty for staying simulated". Treating an unbounded schedule as a
+   * six-entry list would stop reporting payouts on an account that is still
+   * paying them.
+   */
+  payoutScheduleRepeats?: boolean;
+  /**
+   * Trader's share by payout number, e.g. [0.75, 0.8, 0.85, 0.9, 1.0]. The
+   * LAST entry persists for every later payout — Phidias Premium keeps 100%
+   * from the fifth onward. Null/empty means the flat `profitSplit`.
+   */
+  splitSchedule?: number[] | null;
+  /** Flat trader's share, used when there is no schedule. 1.0 = 100%. */
+  profitSplit?: number;
+}
+
+/**
+ * Trader's share of payout number `n` (1-based).
+ *
+ * A progressive split is a schedule that runs out, not one that resets: past
+ * its end the final rate continues forever. Reading it as "unspecified" past
+ * the last entry would silently drop a Premium account back to 75% at exactly
+ * the point it starts keeping everything.
+ */
+export function splitForPayout(
+  payoutNumber: number,
+  splitSchedule: number[] | null | undefined,
+  flatSplit = 1
+): number {
+  if (!splitSchedule || splitSchedule.length === 0) return flatSplit;
+  if (payoutNumber < 1) return splitSchedule[0];
+  return splitSchedule[Math.min(payoutNumber, splitSchedule.length) - 1];
+}
+
+/** Gross cap for payout `n`, or null when the schedule is finite and spent. */
+export function scheduledAmountFor(
+  payoutNumber: number,
+  schedule: number[],
+  repeats = false
+): number | null {
+  if (schedule.length === 0 || payoutNumber < 1) return null;
+  if (payoutNumber <= schedule.length) return schedule[payoutNumber - 1];
+  if (!repeats) return null;
+  // Past the end of a repeating cycle, the last entry is the standing cap.
+  return schedule[schedule.length - 1];
 }
 
 export interface ConsistencyStatus {
@@ -121,6 +174,10 @@ export interface PayoutEligibility {
   scheduledAmount: number | null;
   /** What can actually be requested: min(profit above safety net, scheduled cap). */
   requestableAmount: number;
+  /** Trader's share of THIS payout, 1.0 = 100%. Null once all are taken. */
+  splitPct: number | null;
+  /** requestableAmount after the split — what actually arrives. */
+  netAmount: number;
   qualifyingDayCount: number;
   daysStillNeeded: number;
   consistency: ConsistencyStatus;
@@ -156,10 +213,16 @@ export function payoutEligibility(input: EligibilityInput): PayoutEligibility {
 
   const consistency = consistencyStatus(daysSinceLastPayout, rules.consistencyPct);
 
+  const repeats = rules.payoutScheduleRepeats === true;
   const maxPayouts = rules.payoutSchedule.length;
-  const allTaken = payoutsAlreadyTaken >= maxPayouts;
+  const allTaken = !repeats && payoutsAlreadyTaken >= maxPayouts;
   const payoutNumber = allTaken ? null : payoutsAlreadyTaken + 1;
-  const scheduledAmount = payoutNumber ? rules.payoutSchedule[payoutNumber - 1] : null;
+  const scheduledAmount = payoutNumber
+    ? scheduledAmountFor(payoutNumber, rules.payoutSchedule, repeats)
+    : null;
+  const splitPct = payoutNumber
+    ? splitForPayout(payoutNumber, rules.splitSchedule, rules.profitSplit ?? 1)
+    : null;
 
   // Only profit above the safety net can be withdrawn.
   const eligibleProfit = Number((currentBalance - rules.safetyNetBalance).toFixed(2));
@@ -211,17 +274,23 @@ export function payoutEligibility(input: EligibilityInput): PayoutEligibility {
     eligible && scheduledAmount !== null
       ? Number(Math.min(eligibleProfit, scheduledAmount).toFixed(2))
       : 0;
+  // What actually lands in the trader's account. The split applies to the
+  // amount withdrawn, so this is the only figure worth planning against.
+  const netAmount = Number((requestableAmount * (splitPct ?? 1)).toFixed(2));
 
   return {
     eligible,
     payoutNumber,
     scheduledAmount,
     requestableAmount,
+    splitPct,
+    netAmount,
     qualifyingDayCount,
     daysStillNeeded,
     consistency,
     blockers,
-    isFinalPayout: payoutNumber !== null && payoutNumber === maxPayouts,
+    // A repeating schedule has no final payout — the account does not close.
+    isFinalPayout: !repeats && payoutNumber !== null && payoutNumber === maxPayouts,
   };
 }
 

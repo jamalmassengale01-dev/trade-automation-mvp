@@ -7,6 +7,8 @@ import {
   DailyPnl,
   APEX_EOD_PAYOUT_SCHEDULES,
   APEX_EOD_QUALIFYING_THRESHOLDS,
+  splitForPayout,
+  scheduledAmountFor,
 } from './launchpad';
 
 /** Apex 50K EOD PA, verified from the firm's payout page. */
@@ -234,5 +236,124 @@ describe('published Apex tables', () => {
     expect(APEX_EOD_QUALIFYING_THRESHOLDS).toMatchObject({
       25000: 100, 50000: 250, 100000: 300, 150000: 350,
     });
+  });
+});
+
+describe('progressive profit splits', () => {
+  const PREMIUM_SPLITS = [0.75, 0.8, 0.85, 0.9, 1.0];
+
+  it('returns the rate for each payout number', () => {
+    expect(splitForPayout(1, PREMIUM_SPLITS)).toBe(0.75);
+    expect(splitForPayout(3, PREMIUM_SPLITS)).toBe(0.85);
+    expect(splitForPayout(5, PREMIUM_SPLITS)).toBe(1.0);
+  });
+
+  it('holds the final rate forever rather than falling back to the first', () => {
+    // The failure that matters: a mature Premium account dropping to 75% at
+    // exactly the point it starts keeping everything.
+    expect(splitForPayout(6, PREMIUM_SPLITS)).toBe(1.0);
+    expect(splitForPayout(50, PREMIUM_SPLITS)).toBe(1.0);
+  });
+
+  it('falls back to the flat split when there is no schedule', () => {
+    expect(splitForPayout(3, null, 0.8)).toBe(0.8);
+    expect(splitForPayout(3, [], 0.8)).toBe(0.8);
+    expect(splitForPayout(3, undefined)).toBe(1);
+  });
+});
+
+describe('repeating payout schedules', () => {
+  it('runs out on a finite schedule — an Apex PA closes', () => {
+    const apex = [1500, 1500, 2000, 2500, 2500, 3000];
+    expect(scheduledAmountFor(6, apex)).toBe(3000);
+    expect(scheduledAmountFor(7, apex)).toBeNull();
+  });
+
+  it('keeps paying the last cap when the schedule repeats', () => {
+    // Phidias: $2,000 per cycle, the CASH account does not close.
+    expect(scheduledAmountFor(1, [2000], true)).toBe(2000);
+    expect(scheduledAmountFor(99, [2000], true)).toBe(2000);
+  });
+
+  it('rejects nonsense payout numbers', () => {
+    expect(scheduledAmountFor(0, [2000], true)).toBeNull();
+    expect(scheduledAmountFor(1, [], true)).toBeNull();
+  });
+});
+
+describe('payoutEligibility — net amount after split', () => {
+  const profitable = (n: number, perDay: number) =>
+    Array.from({ length: n }, (_, i) => ({ date: `2026-09-${String(i + 1).padStart(2, '0')}`, pnl: perDay }));
+
+  const phidiasPremium = {
+    qualifyingDayThreshold: 150,
+    requiredQualifyingDays: 5,
+    safetyNetBalance: 50_100,
+    minPayout: 500,
+    consistencyPct: 30,
+    payoutSchedule: [2000],
+    payoutScheduleRepeats: true,
+    splitSchedule: [0.75, 0.8, 0.85, 0.9, 1.0],
+    profitSplit: 0.75,
+  };
+
+  it('applies the first-payout split to the requestable amount', () => {
+    const r = payoutEligibility({
+      daysSinceLastPayout: profitable(8, 400),
+      currentBalance: 53_200,
+      payoutsAlreadyTaken: 0,
+      rules: phidiasPremium,
+    });
+    expect(r.eligible).toBe(true);
+    expect(r.requestableAmount).toBe(2000);
+    expect(r.splitPct).toBe(0.75);
+    expect(r.netAmount).toBe(1500);
+  });
+
+  it('pays the full amount once the split reaches 100%', () => {
+    const r = payoutEligibility({
+      daysSinceLastPayout: profitable(8, 400),
+      currentBalance: 53_200,
+      payoutsAlreadyTaken: 6,
+      rules: phidiasPremium,
+    });
+    expect(r.splitPct).toBe(1.0);
+    expect(r.netAmount).toBe(2000);
+  });
+
+  it('does not close a repeating account after the schedule length', () => {
+    const r = payoutEligibility({
+      daysSinceLastPayout: profitable(8, 400),
+      currentBalance: 53_200,
+      payoutsAlreadyTaken: 20,
+      rules: phidiasPremium,
+    });
+    expect(r.payoutNumber).toBe(21);
+    expect(r.isFinalPayout).toBe(false);
+    expect(r.blockers.map((b) => b.reason)).not.toContain('all_payouts_taken');
+  });
+
+  it('still closes an Apex PA after its sixth payout', () => {
+    const r = payoutEligibility({
+      daysSinceLastPayout: profitable(8, 400),
+      currentBalance: 53_200,
+      payoutsAlreadyTaken: 6,
+      rules: { ...phidiasPremium, payoutSchedule: [1500, 1500, 2000, 2500, 2500, 3000],
+               payoutScheduleRepeats: false, splitSchedule: null, profitSplit: 1 },
+    });
+    expect(r.payoutNumber).toBeNull();
+    expect(r.blockers.map((b) => b.reason)).toContain('all_payouts_taken');
+  });
+
+  it('nets to the full amount on a 100% flat split (Apex)', () => {
+    const r = payoutEligibility({
+      daysSinceLastPayout: profitable(8, 400),
+      currentBalance: 53_200,
+      payoutsAlreadyTaken: 0,
+      rules: { ...phidiasPremium, payoutSchedule: [1500], payoutScheduleRepeats: false,
+               splitSchedule: null, profitSplit: 1, consistencyPct: 50 },
+    });
+    expect(r.splitPct).toBe(1);
+    expect(r.netAmount).toBe(r.requestableAmount);
   });
 });
