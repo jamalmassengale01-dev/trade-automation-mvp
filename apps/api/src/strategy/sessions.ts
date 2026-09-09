@@ -105,13 +105,56 @@ export function getSession(date: Date): Session | null {
 function pad(n: number): string { return n < 10 ? `0${n}` : String(n); }
 
 /**
- * Broker day key: YYYY-MM-DD. At or after 6:00 PM ET the day belongs to the NEXT calendar date.
- * e.g. 2026-09-15 18:30 ET → "2026-09-16"; 2026-09-15 17:59 ET → "2026-09-15".
+ * When a firm's trading day rolls over.
+ *
+ * Apex rolls at 6:00 PM ET. It is not a universal convention: Phidias ends its
+ * session at 10:00 PM UTC+2, which is roughly 4:00 PM ET — a different day
+ * boundary AND an earlier one, so the same fill can belong to different broker
+ * days at the two firms.
+ *
+ * The boundary is expressed as an hour in a named zone rather than a fixed UTC
+ * offset so each firm's own DST is applied to its own rule. That matters most
+ * in the weeks each autumn when EU and US clocks change on different dates and
+ * a fixed offset would silently drift by an hour.
  */
-export function brokerDayKey(date: Date): string {
-  const p = etParts(date);
-  if (p.hour >= BROKER_DAY_ROLL_HOUR_ET) {
-    // Advance one calendar day using UTC arithmetic on the ET calendar date
+export interface BrokerDayBoundary {
+  /** IANA zone the hour is expressed in, e.g. 'America/New_York', 'Europe/Paris'. */
+  timeZone: string;
+  /** Hour (0-23) in that zone at or after which the day rolls to the next date. */
+  hour: number;
+}
+
+export const APEX_DAY_BOUNDARY: BrokerDayBoundary = {
+  timeZone: 'America/New_York',
+  hour: BROKER_DAY_ROLL_HOUR_ET,
+};
+
+/** Calendar parts of `date` in an arbitrary zone. */
+function zoneParts(date: Date, timeZone: string): { year: number; month: number; day: number; hour: number } {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23',
+  });
+  const parts = Object.fromEntries(fmt.formatToParts(date).map((p) => [p.type, p.value]));
+  return {
+    year: Number(parts.year), month: Number(parts.month),
+    day: Number(parts.day), hour: Number(parts.hour),
+  };
+}
+
+/**
+ * Broker day key: YYYY-MM-DD. At or after the boundary hour the day belongs to
+ * the NEXT calendar date.
+ *
+ * Defaults to Apex's 6:00 PM ET, so existing callers are unchanged:
+ * 2026-09-15 18:30 ET → "2026-09-16"; 2026-09-15 17:59 ET → "2026-09-15".
+ */
+export function brokerDayKey(date: Date, boundary: BrokerDayBoundary = APEX_DAY_BOUNDARY): string {
+  const p = boundary.timeZone === 'America/New_York'
+    ? etParts(date)
+    : zoneParts(date, boundary.timeZone);
+
+  if (p.hour >= boundary.hour) {
+    // Advance one calendar day using UTC arithmetic on the local calendar date
     const next = new Date(Date.UTC(p.year, p.month - 1, p.day + 1));
     return `${next.getUTCFullYear()}-${pad(next.getUTCMonth() + 1)}-${pad(next.getUTCDate())}`;
   }
@@ -127,4 +170,13 @@ export function toDayKey(value: Date | string | null | undefined): string | null
   if (!value) return null;
   if (typeof value === 'string') return value.slice(0, 10);
   return `${value.getUTCFullYear()}-${pad(value.getUTCMonth() + 1)}-${pad(value.getUTCDate())}`;
+}
+
+/** Minutes past midnight in an arbitrary IANA zone. */
+export function zoneMinutesOfDay(date: Date, timeZone: string): number {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  });
+  const parts = Object.fromEntries(fmt.formatToParts(date).map((p) => [p.type, p.value]));
+  return Number(parts.hour) * 60 + Number(parts.minute);
 }

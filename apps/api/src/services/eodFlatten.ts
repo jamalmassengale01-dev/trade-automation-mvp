@@ -21,7 +21,7 @@
 
 import { query } from '../db';
 import { bracketManager } from '../strategy/bracketManager';
-import { etMinutesOfDay } from '../strategy/sessions';
+import { etMinutesOfDay, zoneMinutesOfDay } from '../strategy/sessions';
 import logger from '../utils/logger';
 
 const log = logger.child({ context: 'EodFlatten' });
@@ -44,8 +44,14 @@ export interface FlattenResult {
  * Exported for tests: the behaviour that matters is that it fires within the
  * window and stays quiet outside it, including across the ET day boundary.
  */
-export function inFlattenWindow(now: Date, cutoffMinute = DEFAULT_FLATTEN_ET_MINUTE): boolean {
-  const minute = etMinutesOfDay(now);
+export function inFlattenWindow(
+  now: Date,
+  cutoffMinute = DEFAULT_FLATTEN_ET_MINUTE,
+  timeZone = 'America/New_York'
+): boolean {
+  const minute = timeZone === 'America/New_York'
+    ? etMinutesOfDay(now)
+    : zoneMinutesOfDay(now, timeZone);
   return minute >= cutoffMinute && minute < cutoffMinute + WINDOW_MINUTES;
 }
 
@@ -55,20 +61,39 @@ export function inFlattenWindow(now: Date, cutoffMinute = DEFAULT_FLATTEN_ET_MIN
  * Runs per account and never lets one failure stop the rest — a broker error on
  * one account must not leave the other nineteen open through the close.
  */
-export async function flattenOpenTrades(reason: string): Promise<FlattenResult[]> {
-  const r = await query<{ id: string; name: string; open_trades: string }>(
-    `SELECT ba.id, ba.name, COUNT(gt.id) AS open_trades
+export async function flattenOpenTrades(
+  reason: string,
+  /** Restrict to accounts whose own preset says it is flatten time now. */
+  dueOnly: { now: Date } | null = null
+): Promise<FlattenResult[]> {
+  const r = await query<{
+    id: string; name: string; open_trades: string;
+    flatten_minute: number | null; broker_day_tz: string | null;
+  }>(
+    `SELECT ba.id, ba.name, COUNT(gt.id) AS open_trades,
+            p.flatten_minute, p.broker_day_tz
      FROM broker_accounts ba
      JOIN gb_trades gt ON gt.broker_account_id = ba.id
        AND gt.state NOT IN ('closed', 'failed')
+     LEFT JOIN presets p ON p.id = ba.preset_id
      WHERE ba.is_active = true AND ba.is_disabled = false
-     GROUP BY ba.id, ba.name`
+     GROUP BY ba.id, ba.name, p.flatten_minute, p.broker_day_tz`
   );
 
-  if (r.rowCount === 0) return [];
+  // Each firm closes its own day at its own time. A preset with no flatten
+  // minute permits overnight holds and is left alone; a manual close-all
+  // (dueOnly === null) still reaches every account.
+  const due = dueOnly === null
+    ? r.rows
+    : r.rows.filter((row) =>
+        row.flatten_minute !== null &&
+        inFlattenWindow(dueOnly.now, row.flatten_minute, row.broker_day_tz ?? 'America/New_York')
+      );
+
+  if (due.length === 0) return [];
 
   const results: FlattenResult[] = [];
-  for (const row of r.rows) {
+  for (const row of due) {
     try {
       const closed = await bracketManager.closeAll(row.id, reason);
       results.push({ accountId: row.id, accountName: row.name, tradesClosed: closed });
@@ -88,8 +113,8 @@ export async function flattenOpenTrades(reason: string): Promise<FlattenResult[]
          VALUES ('kill_switch', 'eod_flatten_failed', $1, $2, $3, NOW())`,
         [
           row.id,
-          `Could not flatten before market close: ${message}. The position may be held ` +
-          `through 4:59 PM ET, which Apex explicitly does not cover.`,
+          `Could not flatten before this account's session close: ${message}. The position ` +
+          'may be held through the close, which prop firms explicitly do not cover.',
           JSON.stringify({ openTrades: Number(row.open_trades) }),
         ]
       ).catch(() => undefined);
@@ -104,23 +129,27 @@ export async function flattenOpenTrades(reason: string): Promise<FlattenResult[]
  * The guard is a date string rather than a timer so a restart inside the window
  * does not re-flatten, and a restart before it does not miss the window.
  */
-let lastFlattenDay: string | null = null;
+const flattenedToday = new Set<string>();
 
-export async function eodFlattenTick(
-  now: Date = new Date(),
-  cutoffMinute = DEFAULT_FLATTEN_ET_MINUTE
-): Promise<FlattenResult[] | null> {
-  if (!inFlattenWindow(now, cutoffMinute)) return null;
+export async function eodFlattenTick(now: Date = new Date()): Promise<FlattenResult[] | null> {
+  // Which accounts are due is decided per preset inside flattenOpenTrades,
+  // because firms close their days at different times. The guard below is
+  // keyed per account for the same reason: one firm's flatten must not mark
+  // another firm's day as already handled.
+  const results = await flattenOpenTrades('eod_flatten', { now });
+  if (results.length === 0) return null;
 
-  const dayKey = now.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
-  if (lastFlattenDay === dayKey) return null;
-  lastFlattenDay = dayKey;
+  const fresh = results.filter((r) => {
+    const dayKey = `${r.accountId}:${now.toLocaleDateString('en-CA', { timeZone: 'America/New_York' })}`;
+    if (flattenedToday.has(dayKey)) return false;
+    flattenedToday.add(dayKey);
+    return true;
+  });
 
-  log.info('EOD flatten window reached', { dayKey });
-  return flattenOpenTrades('eod_flatten');
+  return fresh.length > 0 ? fresh : null;
 }
 
 /** Testing hook. */
 export function __resetFlattenGuard(): void {
-  lastFlattenDay = null;
+  flattenedToday.clear();
 }

@@ -23,7 +23,7 @@ import { getInstrument, rootSymbol } from '../strategy/instruments';
 import { stepRisk, StepMultipliers } from '../strategy/ladder';
 import { contractsFor, splitGroups } from '../strategy/sizing';
 import { resolveScalingTier, ScalingTier } from '../strategy/scaling';
-import { brokerDayKey, getSession, sessionFlagColumn, toDayKey } from '../strategy/sessions';
+import { brokerDayKey, getSession, sessionFlagColumn, toDayKey, BROKER_DAY_ROLL_HOUR_ET } from '../strategy/sessions';
 import {
   checkGate, checkSniperGate, resetIfNewDay, AccountDayState,
   remainingTarget, isSniperEligible, sniperRisk,
@@ -101,6 +101,8 @@ interface AccountWithPreset extends Record<string, any> {
   p_dd_mode: DdMode | null;
   p_safety_net_buffer: string | number | null;
   p_daily_loss_cap_source: 'firm' | 'internal' | null;
+  p_broker_day_tz: string | null;
+  p_broker_day_hour: number | null;
 }
 
 export async function executeGbLiveAlert(input: GbExecInput): Promise<GbExecResult> {
@@ -163,7 +165,9 @@ async function processAccount(
             p.max_drawdown          AS p_max_drawdown,
             p.dd_mode               AS p_dd_mode,
             p.safety_net_buffer     AS p_safety_net_buffer,
-            p.daily_loss_cap_source AS p_daily_loss_cap_source
+            p.daily_loss_cap_source AS p_daily_loss_cap_source,
+            p.broker_day_tz         AS p_broker_day_tz,
+            p.broker_day_hour       AS p_broker_day_hour
      FROM broker_accounts ba
      LEFT JOIN presets p ON p.id = ba.preset_id
      WHERE ba.id = $1`,
@@ -225,7 +229,14 @@ async function processAccount(
   }
 
   // ---- broker day roll ---------------------------------------------
-  const todayKey = brokerDayKey(now);
+  // Firms close their days at different times — Apex 6 PM ET, Phidias 10 PM
+  // UTC+2 — and this key is what resets the ladder, the session flags and the
+  // daily trade count. Using one firm's boundary for another's account rolls
+  // that state on the wrong minute.
+  const todayKey = brokerDayKey(now, {
+    timeZone: acct.p_broker_day_tz ?? 'America/New_York',
+    hour: acct.p_broker_day_hour ?? BROKER_DAY_ROLL_HOUR_ET,
+  });
   const before: AccountDayState = {
     ladderStep: Number(acct.ladder_step ?? 1),
     dayRealizedPnl: Number(acct.day_realized_pnl ?? 0),
