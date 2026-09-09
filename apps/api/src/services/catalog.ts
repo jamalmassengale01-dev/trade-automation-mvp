@@ -21,6 +21,15 @@ export const VERSIONED_PRESET_FIELDS = [
   'cap_step', 'max_trades_day', 'profit_split', 'step2_mult', 'step3_mult',
   'step4_mult', 'pass_zone_buffer', 'sniper_risk_pct', 'sniper_tp_r',
   'sniper_max_trades_day', 'notes',
+  // Rules that vary by firm rather than by how you choose to trade. Anything
+  // taken from a firm's rules page belongs here: the catalog is the versioned
+  // record of what the firm said, so a field missing from this list is a rule
+  // that silently survives a publish unchanged while the page it came from has
+  // moved on.
+  'daily_loss_cap_source', 'safety_net_buffer', 'consistency_pct',
+  'min_trading_days', 'qualifying_day_threshold', 'required_qualifying_days',
+  'min_payout', 'payout_schedule', 'scaling_tiers', 'inactivity_alert_days',
+  'broker_day_tz', 'broker_day_hour', 'flatten_minute',
 ] as const;
 
 export type VersionedPresetField = (typeof VERSIONED_PRESET_FIELDS)[number];

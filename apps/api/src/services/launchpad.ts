@@ -50,6 +50,7 @@ interface AccountRow extends Record<string, unknown> {
   p_min_payout: string | number | null;
   p_safety_net_buffer: string | number | null;
   p_consistency_pct: string | number | null;
+  p_min_trading_days: number | null;
   p_payout_schedule: number[] | null;
 }
 
@@ -66,7 +67,8 @@ const ACCOUNT_SQL = `
          p.min_payout               AS p_min_payout,
          p.safety_net_buffer        AS p_safety_net_buffer,
          p.payout_schedule          AS p_payout_schedule,
-         50                         AS p_consistency_pct
+         p.consistency_pct          AS p_consistency_pct,
+         p.min_trading_days         AS p_min_trading_days
   FROM broker_accounts ba
   LEFT JOIN presets p ON p.id = ba.preset_id
 `;
@@ -145,7 +147,14 @@ async function buildStatus(acct: AccountRow): Promise<AccountPayoutStatus> {
     requiredQualifyingDays: acct.p_required_qualifying_days ?? 5,
     safetyNetBalance: startBalance + num(acct.p_max_drawdown) + num(acct.p_safety_net_buffer, 100),
     minPayout: num(acct.p_min_payout, 500),
-    consistencyPct: num(acct.p_consistency_pct, 50),
+    // NULL means the firm imposes no consistency rule (Phidias evaluations).
+    // 0 is the "nothing can dominate" case consistencyStatus already handles,
+    // so NULL maps to it directly rather than falling back to Apex's 50 —
+    // defaulting a missing rule to a STRICTER one would block payouts that
+    // the firm would allow.
+    consistencyPct: acct.p_consistency_pct === null || acct.p_consistency_pct === undefined
+      ? 0
+      : num(acct.p_consistency_pct),
     payoutSchedule: acct.p_payout_schedule,
   };
 

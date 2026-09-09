@@ -220,3 +220,77 @@ describe('staggerWarnings', () => {
     expect(staggerWarnings(['2026-09-01'])).toEqual([]);
   });
 });
+
+describe('minimum trading days', () => {
+  const base = {
+    outcome: 'in_progress' as const,
+    purchaseDate: '2026-09-01',
+    expiresOn: null,
+    passDate: null,
+    activationDeadline: null,
+    startBalance: 50_000,
+    targetProfit: 4_000,
+    maxDrawdown: 2_500,
+  };
+
+  it('does not pass an eval that hit target before the minimum days', () => {
+    // Phidias Fundamental: 3 trading days required.
+    const r = assessEval({
+      snapshot: { ...base, minTradingDays: 3 },
+      currentBalance: 54_500,
+      today: '2026-09-03',
+      tradingDaysObserved: 1,
+    });
+    expect(r.outcome).toBe('in_progress');
+    expect(r.changed).toBe(false);
+    expect(r.reason).toContain('1 of 3 required trading days');
+    // No activation clock may start on a pass the firm has not granted.
+    expect(r.daysToActivationDeadline).toBeNull();
+    expect(r.notes.join(' ')).toContain('2 more trading day(s)');
+  });
+
+  it('passes once both target and minimum days are met', () => {
+    const r = assessEval({
+      snapshot: { ...base, minTradingDays: 3 },
+      currentBalance: 54_500,
+      today: '2026-09-05',
+      tradingDaysObserved: 3,
+    });
+    expect(r.outcome).toBe('passed');
+    expect(r.changed).toBe(true);
+    expect(r.daysToActivationDeadline).toBe(7);
+  });
+
+  it('passes immediately when the firm requires no minimum', () => {
+    const r = assessEval({
+      snapshot: base, // minTradingDays undefined
+      currentBalance: 54_500,
+      today: '2026-09-02',
+      tradingDaysObserved: 1,
+    });
+    expect(r.outcome).toBe('passed');
+  });
+
+  it('still reports the target as reached while waiting out the days', () => {
+    const r = assessEval({
+      snapshot: { ...base, minTradingDays: 3 },
+      currentBalance: 54_500,
+      today: '2026-09-03',
+      tradingDaysObserved: 2,
+    });
+    expect(r.progressPct).toBeGreaterThan(100);
+    expect(r.onTrack).toBe(true);
+    expect(r.daysToTargetAtRate).toBe(0);
+  });
+
+  it('does not block a blown eval behind the minimum-days check', () => {
+    // Order matters: liquidation is decided before the pass logic.
+    const r = assessEval({
+      snapshot: { ...base, minTradingDays: 3 },
+      currentBalance: 47_000,
+      today: '2026-09-03',
+      tradingDaysObserved: 1,
+    });
+    expect(r.outcome).toBe('blown');
+  });
+});

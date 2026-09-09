@@ -47,6 +47,7 @@ interface EvalRow extends Record<string, unknown> {
   p_start_balance: string | number | null;
   p_target_profit: string | number | null;
   p_max_drawdown: string | number | null;
+  p_min_trading_days: number | null;
 }
 
 const d = (v: Date | string | null): string | null =>
@@ -59,7 +60,8 @@ const EVAL_SQL = `
   SELECT e.*, ba.name AS account_name, ba.cumulative_pnl,
          p.start_balance AS p_start_balance,
          p.target_profit AS p_target_profit,
-         p.max_drawdown  AS p_max_drawdown
+         p.max_drawdown  AS p_max_drawdown,
+         p.min_trading_days AS p_min_trading_days
   FROM evals e
   LEFT JOIN broker_accounts ba ON ba.id = e.broker_account_id
   LEFT JOIN presets p ON p.id = ba.preset_id
@@ -94,6 +96,7 @@ async function buildTracked(row: EvalRow, today: string): Promise<TrackedEval> {
     startBalance,
     targetProfit: num(row.p_target_profit),
     maxDrawdown: num(row.p_max_drawdown),
+    minTradingDays: row.p_min_trading_days ?? 0,
   };
 
   const currentBalance = startBalance + num(row.cumulative_pnl);

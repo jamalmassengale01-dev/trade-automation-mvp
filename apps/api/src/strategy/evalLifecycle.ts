@@ -29,6 +29,8 @@ export interface EvalSnapshot {
   startBalance: number;
   targetProfit: number;
   maxDrawdown: number;
+  /** Trading days the firm requires before it will pass the evaluation. */
+  minTradingDays?: number;
 }
 
 export type EvalUrgency = 'ok' | 'watch' | 'critical' | 'lapsed';
@@ -230,7 +232,32 @@ export function assessEval(input: AssessInput): EvalAssessment {
     };
   }
 
-  if (s.targetProfit > 0 && profit >= s.targetProfit) {
+  // Hitting the target is necessary but not sufficient. Most firms also
+  // require a minimum number of trading days, and Phidias Fundamental wants
+  // three. Marking an evaluation passed early would start the activation-fee
+  // countdown against a pass the firm has not granted.
+  const minDays = s.minTradingDays ?? 0;
+  const targetReached = s.targetProfit > 0 && profit >= s.targetProfit;
+  const daysShort = Math.max(0, minDays - tradingDaysObserved);
+
+  if (targetReached && daysShort > 0) {
+    return {
+      outcome: 'in_progress', changed: false,
+      reason:
+        `Target reached, but ${tradingDaysObserved} of ${minDays} required trading days completed`,
+      profit, progressPct, daysRemaining, daysElapsed, ratePerTradingDay,
+      tradingDaysObserved, daysToTargetAtRate: 0, projectionRange: null,
+      onTrack: true, projectionBlockedBy: null,
+      daysToActivationDeadline: null,
+      urgency: 'watch',
+      notes: [
+        `Profit target met. ${daysShort} more trading day(s) needed before the firm will pass ` +
+        'this evaluation — trade small; the target is banked and the drawdown floor is not.',
+      ],
+    };
+  }
+
+  if (targetReached) {
     const deadline = addDays(today, activationWindowDays);
     return {
       outcome: 'passed', changed: true,
