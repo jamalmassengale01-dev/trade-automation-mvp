@@ -11,6 +11,11 @@ import {
 import logger from '../utils/logger';
 import { resolveSymbol } from '../services/symbolResolver';
 import { TradovateWsClient, TvFillEntity } from './tradovate/ws';
+import {
+  requestAccessToken,
+  credentialsToAuthRequest,
+  TradovateAuthResponse,
+} from './tradovate/auth';
 
 const BASE_URLS = {
   demo: 'https://demo.tradovateapi.com/v1',
@@ -373,22 +378,15 @@ export class TradovateBrokerAdapter extends BaseBrokerAdapter implements IBracke
   private async authenticate(account: BrokerAccount, creds: TradovateCredentials, baseUrl: string): Promise<TokenCache> {
     this.brokerLogger.info('Authenticating with Tradovate', { accountId: account.id, environment: creds.environment ?? 'demo' });
 
-    const authRes = await this.tvPost<{
-      accessToken: string;
-      expirationTime: string;
-      userId: number;
-      errorText?: string;
-    }>(baseUrl, '/auth/accesstokenrequest', null, {
-      name: creds.username,
-      password: creds.password,
-      appId: creds.appId,
-      appVersion: creds.appVersion,
-      cid: Number(creds.cid),
-      sec: creds.sec,
-      deviceId: creds.deviceId,
-    });
-
-    if (authRes.errorText) throw new Error(`Tradovate auth failed: ${authRes.errorText}`);
+    const authRes = await requestAccessToken(
+      (path, body) => this.tvPost<TradovateAuthResponse>(baseUrl, path, null, body),
+      credentialsToAuthRequest(creds),
+      { onPenalty: (waitSeconds, attempt) =>
+          this.brokerLogger.warn('Tradovate auth time penalty — retrying', {
+            accountId: account.id, waitSeconds, attempt,
+          }),
+      }
+    );
 
     let tradovateAccountId: number;
     let tradovateAccountSpec: string;

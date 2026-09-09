@@ -10,7 +10,8 @@
     "test": "vitest",
     "test:run": "vitest run",
     "create-admin": "tsx src/db/createUser.ts --role admin",
-    "create-user": "tsx src/db/createUser.ts --role customer"
+    "create-user": "tsx src/db/createUser.ts --role customer",
+    "tradovate:preflight": "tsx src/scripts/tradovatePreflight.ts"
   },
   "dependencies": {
     "@trade-automation/shared-types": "^1.0.0",
