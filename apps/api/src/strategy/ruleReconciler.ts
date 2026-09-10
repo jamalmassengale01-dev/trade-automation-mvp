@@ -272,8 +272,10 @@ export function reconcileRules(input: ReconcileInput): ReconcileResult {
       severity: 'warn',
       message:
         `The $${dd.floor} trailing floor was derived from incomplete daily history, so it may be ` +
-        'too low and the room above it too generous. Backfill account_daily_pnl, or treat this ' +
-        "account's drawdown room as unverified.",
+        'too low and the room above it too generous. Correct it with ' +
+        'POST /api/gb/accounts/:id/adjust (a dated entry for the missing day) or ' +
+        'POST /api/gb/accounts/:id/resync-from-broker (match the broker total in one step). ' +
+        "Until then, treat this account's drawdown room as unverified.",
       detail: { floor: dd.floor, highWater: dd.highWater },
     });
   }

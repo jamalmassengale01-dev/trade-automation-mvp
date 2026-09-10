@@ -1,4 +1,8 @@
 import { Router, Request, Response } from 'express';
+import { applyAdjustment, resyncToBroker, historyIntegrity } from '../services/pnlAdjustment';
+import { getConnectedBrokerAdapter } from '../brokers';
+import { BrokerAccount, BrokerType } from '../types';
+import { brokerDayKey } from '../strategy/sessions';
 import { query } from '../db';
 import { dllHeadroom } from '../strategy/gate';
 import { bracketManager } from '../strategy/bracketManager';
@@ -503,6 +507,79 @@ router.post('/accounts/:accountId/reconcile', async (req: Request, res: Response
   } catch (error) {
     routeLogger.error('Reconciliation failed', { accountId: req.params.accountId, error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({ success: false, error: 'Reconciliation failed' });
+  }
+});
+
+/**
+ * POST /api/gb/accounts/:accountId/adjust — correct recorded P&L.
+ *
+ * Admin-only. A hand-written number changes the trailing drawdown floor and
+ * therefore what the gate will permit, so it carries the same weight as
+ * publishing a preset. Every adjustment raises a risk event.
+ *
+ * Body: { day_key: 'YYYY-MM-DD', amount: number, reason: string }
+ */
+router.post('/accounts/:accountId/adjust', requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const b = req.body ?? {};
+    const result = await applyAdjustment({
+      accountId: req.params.accountId,
+      dayKey: String(b.day_key ?? ''),
+      amount: Number(b.amount),
+      reason: String(b.reason ?? ''),
+      adjustedBy: req.user?.id ?? null,
+    });
+    res.json({ success: true, data: result });
+  } catch (error) {
+    // 400 not 500: every failure here is a rejected input — a bad day key, a
+    // zero amount, a missing reason — not a server fault.
+    const message = error instanceof Error ? error.message : String(error);
+    routeLogger.warn('Adjustment rejected', { accountId: req.params.accountId, error: message });
+    res.status(400).json({ success: false, error: message });
+  }
+});
+
+/**
+ * POST /api/gb/accounts/:accountId/resync-from-broker — match tracked P&L to
+ * the broker's, as one dated, audited adjustment.
+ *
+ * The reconciler fetches the broker's number every sweep and discards it. This
+ * is the missing step that acts on it.
+ */
+router.post('/accounts/:accountId/resync-from-broker', requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const acct = await query<{ id: string; broker_type: string }>(
+      'SELECT id, broker_type FROM broker_accounts WHERE id = $1', [req.params.accountId]
+    );
+    if (acct.rowCount === 0) {
+      res.status(404).json({ success: false, error: 'Account not found' });
+      return;
+    }
+
+    const adapter = await getConnectedBrokerAdapter(acct.rows[0].broker_type as BrokerType);
+    const info = await adapter.getAccountInfo(acct.rows[0] as unknown as BrokerAccount);
+    const brokerCum = Number(info.realizedPnL ?? 0);
+
+    const dayKey = brokerDayKey(new Date());
+    const result = await resyncToBroker(req.params.accountId, brokerCum, dayKey, req.user?.id ?? null);
+
+    res.json({
+      success: true,
+      data: result ?? { message: 'Already in sync — no adjustment written', drift: 0 },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    routeLogger.error('Resync failed', { accountId: req.params.accountId, error: message });
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
+/** GET /api/gb/accounts/:accountId/integrity — is the drawdown floor trustworthy? */
+router.get('/accounts/:accountId/integrity', async (req: Request, res: Response) => {
+  try {
+    res.json({ success: true, data: await historyIntegrity(req.params.accountId) });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Integrity check failed' });
   }
 });
 
