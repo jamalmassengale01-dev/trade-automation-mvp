@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { requireAdmin } from '../middleware/auth';
 import { query } from '../db';
 import { getQueueMetrics } from '../jobs/queues';
 import { healthCheckAllAdapters } from '../brokers';
@@ -79,10 +80,22 @@ router.get('/settings', async (req: Request, res: Response) => {
 });
 
 /**
- * POST /api/system/kill-switch
- * Toggle global kill switch
+ * POST /api/system/kill-switch — toggle the global emergency stop.
+ *
+ * Authorisation here is the ROLE, with the header as an optional second factor.
+ *
+ * The header check alone was `if (_sysKey && ...)` — skipped entirely when
+ * SYSTEM_API_KEY is unset, which left the global emergency stop open to any
+ * authenticated user.
+ *
+ * The reflexive fix is to fail closed when the key is missing. That is wrong
+ * here: it would mean the emergency brake is the thing that does not work at
+ * the moment it is needed, on a deployment that simply had not set an optional
+ * variable. A role check cannot be left unconfigured, so it closes the hole
+ * without creating a worse one — and the header still applies on top wherever
+ * it is set.
  */
-router.post('/kill-switch', async (req: Request, res: Response) => {
+router.post('/kill-switch', requireAdmin, async (req: Request, res: Response) => {
   try {
     const _sysKey = process.env['SYSTEM_API_KEY'];
     if (_sysKey && req.headers['x-system-api-key'] !== _sysKey) {

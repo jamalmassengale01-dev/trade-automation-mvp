@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { useAuth } from '@/components/AuthProvider';
 import { api } from '@/lib/api';
 import { LiveIndicator } from '@/components/LiveIndicator';
 import { TradeVolumeChart, FillRateChart } from '@/components/TradeChart';
@@ -30,6 +31,7 @@ interface ChartData {
 }
 
 export default function DashboardPage() {
+  const { isAdmin } = useAuth();
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -206,6 +208,7 @@ export default function DashboardPage() {
           )}
         </div>
 
+        {isAdmin && (
         <button
           onClick={handleKillSwitch}
           disabled={togglingKill}
@@ -221,6 +224,7 @@ export default function DashboardPage() {
             ? '▶ Resume Trading'
             : '⏹ Emergency Stop'}
         </button>
+        )}
       </div>
 
       {/* Header */}

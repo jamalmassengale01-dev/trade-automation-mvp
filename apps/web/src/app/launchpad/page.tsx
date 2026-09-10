@@ -33,6 +33,7 @@ export default function LaunchpadPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [showEvalForm, setShowEvalForm] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -99,17 +100,31 @@ export default function LaunchpadPage() {
       </div>
 
       {/* ---- evaluations ---- */}
-      {evals && evals.evals.length > 0 && (
+      {evals && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-terminal-text uppercase tracking-wider">
               Evaluations
             </h2>
-            <span className="text-xs text-terminal-muted">
-              {evals.totals.inProgress} running · {evals.totals.offPace} off pace ·{' '}
-              {money(evals.totals.spent)} spent
-            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-terminal-muted">
+                {evals.totals.inProgress} running · {evals.totals.offPace} off pace ·{' '}
+                {money(evals.totals.spent)} spent
+              </span>
+              <button onClick={() => setShowEvalForm((v) => !v)} className="btn-secondary text-xs">
+                {showEvalForm ? 'Cancel' : '+ Record evaluation'}
+              </button>
+            </div>
           </div>
+
+          {showEvalForm && <EvalForm accounts={rows} onSaved={() => { setShowEvalForm(false); load(); }} />}
+
+          {evals.evals.length === 0 && !showEvalForm && (
+            <p className="text-xs text-terminal-muted">
+              No evaluations recorded. Without one there is no expiry countdown and no pace
+              projection — the eval never appears here on its own, it has to be entered when bought.
+            </p>
+          )}
 
           {evals.staggerWarnings.map((w, i) => (
             <div key={i} className="border border-yellow-500/40 bg-yellow-500/10 rounded-lg px-4 py-2">
@@ -263,6 +278,120 @@ const OUTCOME_BADGE: Record<TrackedEval['assessment']['outcome'], string> = {
   blown: 'bg-terminal-sell/15 text-terminal-sell',
   expired: 'bg-terminal-panel text-terminal-muted',
 };
+
+/**
+ * Record an evaluation purchase.
+ *
+ * The endpoint has existed since eval tracking shipped and nothing called it,
+ * so evaluations could only be entered by hand against the API. Without a row
+ * here the entire evalLifecycle layer stays dark — no expiry countdown, no pace
+ * projection, no pass/blow transition and no alert when an activation fee comes
+ * due.
+ *
+ * The expiry default is derived from the firm rather than fixed at 30 days.
+ * Apex evaluations expire in 30 and cannot be reset; Phidias evaluations never
+ * expire. Defaulting a Phidias eval to 30 would invent a deadline and start
+ * warning that a healthy account is behind pace.
+ */
+function EvalForm({ accounts, onSaved }: { accounts: AccountPayoutStatus[]; onSaved: () => void }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [propFirm, setPropFirm] = useState('apex');
+  const [accountId, setAccountId] = useState('');
+  const [accountSize, setAccountSize] = useState('50000');
+  const [purchaseDate, setPurchaseDate] = useState(today);
+  const [evalCost, setEvalCost] = useState('');
+  const [activationCost, setActivationCost] = useState('0');
+  const [expiryDays, setExpiryDays] = useState('30');
+  const [saving, setSaving] = useState(false);
+
+  // Firm defaults. Both are published rules, not preferences.
+  function onFirmChange(firm: string) {
+    setPropFirm(firm);
+    if (firm === 'apex') { setExpiryDays('30'); setEvalCost('109'); }
+    if (firm === 'phidias') { setExpiryDays('0'); setEvalCost('116'); }
+  }
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!purchaseDate) { toast.error('Purchase date is required'); return; }
+    setSaving(true);
+    try {
+      await api.createEval({
+        broker_account_id: accountId || null,
+        prop_firm: propFirm,
+        account_size: Number(accountSize),
+        purchase_date: purchaseDate,
+        eval_cost: Number(evalCost || 0),
+        activation_cost: Number(activationCost || 0),
+        expiry_days: Number(expiryDays || 0),
+      });
+      toast.success('Evaluation recorded');
+      onSaved();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not record the evaluation');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const field = 'w-full px-2 py-1.5 rounded bg-terminal-bg border border-terminal-border text-terminal-text text-sm';
+  const label = 'block text-[11px] uppercase tracking-wider text-terminal-muted mb-1';
+
+  return (
+    <form onSubmit={submit} className="border border-terminal-border rounded-lg p-4 space-y-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div>
+          <label className={label}>Prop firm</label>
+          <select value={propFirm} onChange={(e) => onFirmChange(e.target.value)} className={field}>
+            <option value="apex">Apex</option>
+            <option value="phidias">Phidias</option>
+            <option value="tradeify">Tradeify</option>
+            <option value="mffu">MFFU</option>
+          </select>
+        </div>
+        <div>
+          <label className={label}>Account</label>
+          <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className={field}>
+            <option value="">Not linked yet</option>
+            {accounts.map((a) => (
+              <option key={a.accountId} value={a.accountId}>{a.accountName}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className={label}>Size ($)</label>
+          <input type="number" value={accountSize} onChange={(e) => setAccountSize(e.target.value)} className={field} />
+        </div>
+        <div>
+          <label className={label}>Purchased</label>
+          <input type="date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} className={field} />
+        </div>
+        <div>
+          <label className={label}>Cost ($)</label>
+          <input type="number" step="0.01" value={evalCost} onChange={(e) => setEvalCost(e.target.value)} className={field} />
+        </div>
+        <div>
+          <label className={label}>Activation ($)</label>
+          <input type="number" step="0.01" value={activationCost} onChange={(e) => setActivationCost(e.target.value)} className={field} />
+        </div>
+        <div>
+          <label className={label}>Expires in (days)</label>
+          <input type="number" value={expiryDays} onChange={(e) => setExpiryDays(e.target.value)} className={field} />
+          <p className="text-[10px] text-terminal-muted mt-1">0 = never expires</p>
+        </div>
+        <div className="flex items-end">
+          <button type="submit" disabled={saving} className="btn-primary w-full text-sm">
+            {saving ? 'Saving…' : 'Record'}
+          </button>
+        </div>
+      </div>
+      <p className="text-[11px] text-terminal-muted">
+        Linking an account is optional now but required for a pace projection — progress is measured
+        from that account&apos;s recorded P&amp;L.
+      </p>
+    </form>
+  );
+}
 
 function EvalCard({ ev }: { ev: TrackedEval }) {
   const a = ev.assessment;
