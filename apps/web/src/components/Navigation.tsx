@@ -10,6 +10,7 @@ import { useAuth } from './AuthProvider';
 // adminOnly links are also enforced server-side; hiding them here just keeps
 // customers from clicking into a guaranteed 403.
 const navItems = [
+  { href: '/ops', label: 'Operations', icon: '🎯' },
   { href: '/', label: 'Dashboard', icon: '📊' },
   { href: '/fleet', label: 'Fleet', icon: '🚀' },
   { href: '/launchpad', label: 'LaunchPad', icon: '💰' },

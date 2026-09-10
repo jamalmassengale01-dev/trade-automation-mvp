@@ -135,6 +135,7 @@ export const api = {
       '/api/gb/evals/refresh', { method: 'POST' }),
 
   // LaunchPad
+  getOperations: () => apiClient<{ success: boolean; data: OperationsView }>('/api/gb/operations'),
   getLaunchpad: () => apiClient<{ success: boolean; data: AccountPayoutStatus[] }>('/api/gb/launchpad'),
   requestPayout: (accountId: string, amount?: number) =>
     apiClient<{ success: boolean; data: { payoutNumber: number; amount: number } }>(
@@ -592,4 +593,52 @@ export interface GbTrade {
   exit_time: string | null;
   created_at: string;
   updated_at: string;
+}
+
+
+// ---------------------------------------------------------------------------
+// Operational view — mirrors services/operations.ts
+// ---------------------------------------------------------------------------
+
+export interface ReadinessCheck {
+  area: string;
+  status: 'pass' | 'fail' | 'warn' | 'skipped';
+  detail: string;
+  remedy?: string;
+}
+
+export interface OpsBlocker { kind: string; message: string }
+
+export interface OpsAccount {
+  id: string;
+  name: string;
+  presetName: string | null;
+  propFirm: string | null;
+  phase: string | null;
+  ladderStep: number;
+  nextStepRisk: number | null;
+  dayPnl: number;
+  dailyLossCap: number;
+  dllRoom: number;
+  drawdownFloor: number | null;
+  drawdownRoom: number | null;
+  drawdownUnderstated: boolean;
+  tradesToday: number;
+  maxTradesPerDay: number;
+  sessionsUsed: { london: boolean; nyam: boolean; nypm: boolean };
+  dayLockedOut: boolean;
+  openTrade: { id: string; symbol: string; direction: string; contracts: number; state: string } | null;
+  blockers: OpsBlocker[];
+}
+
+export interface OperationsView {
+  generatedAt: string;
+  session: {
+    current: 'london' | 'nyam' | 'nypm' | null;
+    next: { session: string; label: string; minutesAway: number } | null;
+  };
+  readiness: { ready: boolean; failing: ReadinessCheck[]; warnings: number };
+  accounts: OpsAccount[];
+  refusals: Array<{ at: string; accountName: string | null; ruleType: string; message: string }>;
+  blockedCount: number;
 }

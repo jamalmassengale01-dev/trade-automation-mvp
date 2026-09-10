@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { operationsView } from '../services/operations';
 import { applyAdjustment, resyncToBroker, historyIntegrity } from '../services/pnlAdjustment';
 import { getConnectedBrokerAdapter } from '../brokers';
 import { BrokerAccount, BrokerType } from '../types';
@@ -580,6 +581,26 @@ router.get('/accounts/:accountId/integrity', async (req: Request, res: Response)
     res.json({ success: true, data: await historyIntegrity(req.params.accountId) });
   } catch (error) {
     res.status(500).json({ success: false, error: 'Integrity check failed' });
+  }
+});
+
+/**
+ * GET /api/gb/operations — the operational view.
+ *
+ * Everything needed to answer "if a signal arrived right now, what would
+ * happen?" in one response. Assembled server-side because the parts must agree
+ * with each other: drawdown room from one instant beside a halt verdict from
+ * another is worse than a view that refreshes a beat later.
+ */
+router.get('/operations', async (req: Request, res: Response) => {
+  try {
+    const scope = scopeClause(req, 'ba', 1);
+    res.json({ success: true, data: await operationsView(scope.clause, scope.params) });
+  } catch (error) {
+    routeLogger.error('Operations view failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    res.status(500).json({ success: false, error: 'Failed to build the operations view' });
   }
 });
 
