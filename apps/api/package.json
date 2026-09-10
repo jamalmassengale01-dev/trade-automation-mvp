@@ -12,7 +12,8 @@
     "create-admin": "tsx src/db/createUser.ts --role admin",
     "create-user": "tsx src/db/createUser.ts --role customer",
     "tradovate:preflight": "tsx src/scripts/tradovatePreflight.ts",
-    "eval:sim": "tsx src/scripts/evalSim.ts"
+    "eval:sim": "tsx src/scripts/evalSim.ts",
+    "feasibility": "tsx src/scripts/feasibility.ts"
   },
   "dependencies": {
     "@trade-automation/shared-types": "^1.0.0",
