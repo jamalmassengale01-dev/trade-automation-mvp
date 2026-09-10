@@ -74,8 +74,8 @@ export default function OpsPage() {
       {view.accounts.length === 0 && (
         <div className="card">
           <p className="text-sm text-terminal-muted">
-            No active accounts with a preset. An account without one is skipped entirely by the
-            executor — no ladder, no gate.
+            No accounts have a plan assigned. Without one an account is skipped entirely — no risk
+            limits apply and it will never trade. Assign one on Firm Plans.
           </p>
         </div>
       )}
@@ -166,7 +166,7 @@ function AccountRow({ a }: { a: OpsAccount }) {
         <div>
           <p className="font-semibold text-terminal-text">{a.name}</p>
           <p className="text-xs text-terminal-muted">
-            {a.presetName ?? 'no preset'}
+            {a.presetName ?? 'no plan assigned'}
             {a.propFirm && ` · ${a.propFirm}`}
             {a.phase && ` · ${a.phase}`}
           </p>
