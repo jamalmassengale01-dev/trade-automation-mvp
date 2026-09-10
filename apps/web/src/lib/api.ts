@@ -602,6 +602,7 @@ export interface GbTrade {
 
 export interface ReadinessCheck {
   area: string;
+  label?: string;
   status: 'pass' | 'fail' | 'warn' | 'skipped';
   detail: string;
   remedy?: string;

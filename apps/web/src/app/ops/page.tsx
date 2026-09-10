@@ -147,7 +147,7 @@ function ReadinessBanner({ view }: { view: OperationsView }) {
       </p>
       {view.readiness.failing.map((c) => (
         <div key={c.area} className="text-sm">
-          <span className="text-terminal-text font-medium">{c.area}</span>
+          <span className="text-terminal-text font-medium">{c.label ?? c.area}</span>
           <span className="text-terminal-muted"> — {c.detail}</span>
           {c.remedy && <p className="text-xs text-terminal-muted mt-0.5">→ {c.remedy}</p>}
         </div>

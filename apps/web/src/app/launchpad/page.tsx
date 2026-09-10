@@ -73,7 +73,7 @@ export default function LaunchpadPage() {
   if (loading) {
     return (
       <div className="p-6 space-y-6">
-        <h1 className="text-2xl font-bold text-terminal-text">LaunchPad</h1>
+        <h1 className="text-2xl font-bold text-terminal-text">Payouts</h1>
         <Skeleton className="h-64 w-full" />
       </div>
     );
@@ -92,7 +92,7 @@ export default function LaunchpadPage() {
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-terminal-text">LaunchPad</h1>
+        <h1 className="text-2xl font-bold text-terminal-text">Payouts</h1>
         <p className="text-sm text-terminal-muted mt-1">
           Payout progress across the fleet. A funded account needs qualifying days, balance above
           the safety net, and consistency — independently, all at once.

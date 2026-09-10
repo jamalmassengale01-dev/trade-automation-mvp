@@ -47,7 +47,8 @@ export default function AlertsPage() {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Alerts</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Signals In</h1>
+          <p className="text-sm text-terminal-muted mt-1">Every alert TradingView sent us, whether or not it became a trade.</p>
           <Skeleton className="h-10 w-24" />
         </div>
         <SkeletonTable rows={8} columns={6} />
@@ -66,7 +67,7 @@ export default function AlertsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">TradingView Alerts</h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Signals In</h1>
         <button onClick={loadAlerts} className="btn-secondary">Refresh</button>
       </div>
 

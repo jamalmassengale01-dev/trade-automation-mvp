@@ -85,7 +85,8 @@ export default function FleetPage() {
   if (loading) {
     return (
       <div className="p-6 space-y-6">
-        <h1 className="text-2xl font-bold text-terminal-text">LaunchPad Fleet</h1>
+        <h1 className="text-2xl font-bold text-terminal-text">Fleet</h1>
+          <p className="text-sm text-terminal-muted mt-1">Every account in detail — ladder step, day P&amp;L, room left, and its last trade.</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <SkeletonStatCard /><SkeletonStatCard /><SkeletonStatCard /><SkeletonStatCard />
         </div>
@@ -112,7 +113,7 @@ export default function FleetPage() {
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-terminal-text">LaunchPad Fleet</h1>
+        <h1 className="text-2xl font-bold text-terminal-text">Fleet</h1>
         <button onClick={loadAll} className="btn btn-secondary text-xs">Refresh</button>
       </div>
 
@@ -121,7 +122,7 @@ export default function FleetPage() {
         <StatCard title="GB Accounts" value={gbAccounts.length} icon="🚀" accent="blue" />
         <StatCard title="Eval / Funded" value={`${evalCount} / ${fundedCount}`} icon="🎯" accent="yellow" isText />
         <StatCard
-          title="Fleet Day P&L"
+          title="Fleet Day P&amp;L"
           value={`${totalDayPnl >= 0 ? '+' : ''}$${totalDayPnl.toFixed(2)}`}
           icon={totalDayPnl >= 0 ? '📈' : '📉'}
           accent={totalDayPnl >= 0 ? 'buy' : 'sell'}
@@ -139,7 +140,7 @@ export default function FleetPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-terminal-border">
-                {['Account', 'Preset', 'Ladder', 'Day P&L / DLL Room', 'Trades', 'Sessions', 'Last Trade', 'Action'].map((h) => (
+                {['Account', 'Plan', 'Risk Step', 'Day P&L / Daily Room', 'Trades', 'Sessions', 'Last Trade', 'Action'].map((h) => (
                   <th key={h} className="text-left py-3 px-3 text-terminal-muted font-medium uppercase tracking-wider text-xs">{h}</th>
                 ))}
               </tr>
@@ -232,14 +233,14 @@ export default function FleetPage() {
 
       {/* Recent trades feed */}
       <div className="card overflow-x-auto">
-        <h2 className="text-sm font-semibold text-terminal-muted uppercase tracking-wider mb-4">Recent GB Trades</h2>
+        <h2 className="text-sm font-semibold text-terminal-muted uppercase tracking-wider mb-4">Recent Trades</h2>
         {trades.length === 0 ? (
           <p className="text-terminal-muted text-sm py-8 text-center">No GB LIVE trades yet.</p>
         ) : (
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-terminal-border">
-                {['Time', 'Account', 'Symbol', 'Dir', 'Session', 'Step', 'Contracts', 'State', 'Outcome', 'P&L', 'Dev Sim'].map((h) => (
+                {['Time', 'Account', 'Symbol', 'Side', 'Session', 'Step', 'Contracts', 'State', 'Result', 'P&L', 'Simulate'].map((h) => (
                   <th key={h} className="text-left py-2 px-3 text-terminal-muted font-medium uppercase tracking-wider text-xs">{h}</th>
                 ))}
               </tr>

@@ -88,7 +88,8 @@ export default function StrategiesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-terminal-text">Strategies</h1>
+          <h1 className="text-2xl font-bold text-terminal-text">Signal Sources</h1>
+          <p className="text-sm text-terminal-muted mt-1">Each source gets its own webhook URL to paste into a TradingView alert, and its own rules about which accounts it trades.</p>
           <p className="text-sm text-terminal-muted mt-1">
             Each strategy has its own webhook URL, risk rules, and account mappings.
           </p>

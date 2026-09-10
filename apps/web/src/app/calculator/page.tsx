@@ -145,7 +145,7 @@ export default function CalculatorPage() {
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
       <header>
-        <h1 className="text-2xl font-bold text-terminal-text">Prop Firm Calculator</h1>
+        <h1 className="text-2xl font-bold text-terminal-text">Rule Calculator</h1>
         <p className="text-sm text-terminal-muted mt-1">
           Enter a firm&apos;s published rules, see what they actually imply, then save the result as a
           preset you can assign to an account. Re-run this whenever a firm changes its terms.

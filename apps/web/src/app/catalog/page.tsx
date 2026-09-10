@@ -80,7 +80,8 @@ export default function CatalogPage() {
   if (loading) {
     return (
       <div className="p-6 space-y-6">
-        <h1 className="text-2xl font-bold text-terminal-text">Plans</h1>
+        <h1 className="text-2xl font-bold text-terminal-text">Firm Plans</h1>
+          <p className="text-sm text-terminal-muted mt-1">The rules an account trades under. Assign a plan to an account, and update it when a firm changes its rules.</p>
         <Skeleton className="h-64 w-full" />
       </div>
     );
@@ -99,7 +100,7 @@ export default function CatalogPage() {
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-terminal-text">Plans</h1>
+        <h1 className="text-2xl font-bold text-terminal-text">Firm Plans</h1>
         <p className="text-sm text-terminal-muted mt-1">
           {isAdmin
             ? 'The plans customers choose from. Publishing new numbers here updates every account on that plan at its next trade.'
@@ -112,7 +113,7 @@ export default function CatalogPage() {
           <p className="text-sm text-terminal-text">
             Draft plans are hidden from customers. A plan can only be published once its rules have
             been verified against the firm&apos;s published terms — check them on the{' '}
-            <span className="text-terminal-buy">Presets</span> page, then publish here.
+            <span className="text-terminal-buy">Rule Editor</span> page, then publish here.
           </p>
         </div>
       )}

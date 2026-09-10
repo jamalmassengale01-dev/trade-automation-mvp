@@ -48,6 +48,7 @@ export default function OrdersPage() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Orders</h1>
+          <p className="text-sm text-terminal-muted mt-1">What actually reached the broker, and what came back.</p>
           <Skeleton className="h-10 w-24" />
         </div>
         <SkeletonTable rows={8} columns={7} />

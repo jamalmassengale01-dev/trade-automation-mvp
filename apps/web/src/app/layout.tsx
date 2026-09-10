@@ -6,8 +6,8 @@ import { AuthProvider } from '@/components/AuthProvider';
 import { AuthGate } from '@/components/AuthGate';
 
 export const metadata: Metadata = {
-  title: 'Trade Automation Dashboard',
-  description: 'Trading automation platform dashboard',
+  title: 'EdgePilot',
+  description: 'Prop firm trading automation and fleet management',
 };
 
 export default function RootLayout({

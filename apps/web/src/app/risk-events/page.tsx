@@ -45,7 +45,8 @@ export default function RiskEventsPage() {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Risk Events</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Blocked &amp; Warnings</h1>
+          <p className="text-sm text-terminal-muted mt-1">Why a signal did not become a trade, and anything the system wants you to know about.</p>
           <Skeleton className="h-10 w-24" />
         </div>
         <SkeletonTable rows={6} columns={5} />
@@ -64,7 +65,7 @@ export default function RiskEventsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Risk Events</h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Blocked &amp; Warnings</h1>
         <button onClick={loadEvents} className="btn-secondary">Refresh</button>
       </div>
 

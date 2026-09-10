@@ -20,10 +20,10 @@ const VERDICT: Record<
   RuleCheck['verdict'],
   { label: string; cls: string; blurb: string }
 > = {
-  ok:    { label: 'OK',     cls: 'bg-terminal-buy/15 text-terminal-buy border-terminal-buy/30',    blurb: 'Assumptions match the broker.' },
-  warn:  { label: 'Warn',   cls: 'bg-yellow-500/15 text-yellow-500 border-yellow-500/30',          blurb: 'Trading continues — worth a look.' },
-  halt:  { label: 'Halt',   cls: 'bg-terminal-sell/15 text-terminal-sell border-terminal-sell/30', blurb: 'New trades blocked on this account.' },
-  error: { label: 'Error',  cls: 'bg-terminal-panel text-terminal-muted border-terminal-border',   blurb: 'Check could not run.' },
+  ok:    { label: 'OK',     cls: 'bg-terminal-buy/15 text-terminal-buy border-terminal-buy/30',    blurb: 'Our numbers match the broker.' },
+  warn:  { label: 'Warning',   cls: 'bg-yellow-500/15 text-yellow-500 border-yellow-500/30',          blurb: 'Trading continues — worth a look.' },
+  halt:  { label: 'Blocked',   cls: 'bg-terminal-sell/15 text-terminal-sell border-terminal-sell/30', blurb: 'New trades blocked on this account.' },
+  error: { label: 'Error',  cls: 'bg-terminal-panel text-terminal-muted border-terminal-border',   blurb: 'Could not reach the broker to check.' },
 };
 
 const money = (v: string | number | null) =>
@@ -86,6 +86,7 @@ export default function HealthPage() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-terminal-text">Account Health</h1>
+          <p className="text-sm text-terminal-muted mt-1">Compares what we think each account holds against what the broker reports. Drift here makes every risk limit wrong.</p>
           <p className="text-sm text-terminal-muted mt-1">
             Preset assumptions checked against what the broker actually reports. Runs automatically
             every 15 minutes.
@@ -100,7 +101,7 @@ export default function HealthPage() {
         <div className="border border-terminal-sell/40 bg-terminal-sell/10 rounded-lg px-4 py-3">
           <p className="text-sm text-terminal-text">
             <span className="font-semibold text-terminal-sell">
-              {halts.length} account{halts.length > 1 ? 's' : ''} halted.
+              {halts.length} account{halts.length > 1 ? 's' : ''} blocked from trading.
             </span>{' '}
             New trades are blocked on {halts.length > 1 ? 'these' : 'this'} account until the
             mismatch is resolved.

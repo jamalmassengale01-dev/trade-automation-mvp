@@ -177,7 +177,8 @@ export default function PresetsPage() {
   if (loading) {
     return (
       <div className="p-6 space-y-6">
-        <h1 className="text-2xl font-bold text-terminal-text">Strategy Presets</h1>
+        <h1 className="text-2xl font-bold text-terminal-text">Rule Editor</h1>
+          <p className="text-sm text-terminal-muted mt-1">The raw numbers behind a plan. Most changes belong on Firm Plans — this is for building a new one or correcting a value.</p>
         <div className="card"><Skeleton className="h-64 w-full" /></div>
       </div>
     );
@@ -195,7 +196,7 @@ export default function PresetsPage() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-terminal-text">Strategy Presets</h1>
+          <h1 className="text-2xl font-bold text-terminal-text">Rule Editor</h1>
           <p className="text-sm text-terminal-muted mt-1">
             Every risk, ladder, and Sniper Mode parameter the execution engine uses. Edit here — no code changes, no redeploy, and nothing to change in TradingView.
           </p>

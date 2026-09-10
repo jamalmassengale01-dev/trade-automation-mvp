@@ -31,7 +31,7 @@ describe('checkAccounts', () => {
     const c = byArea(checkAccounts([acct({ preset_id: null, p_verified_at: null })]), 'accounts.preset');
     expect(c?.status).toBe('fail');
     // The consequence, not just the fact: a preset-less account is silently skipped.
-    expect(c?.remedy).toContain('skips the account');
+    expect(c?.remedy).toContain('never trade');
   });
 
   it('fails an account with no credentials', () => {
@@ -48,7 +48,7 @@ describe('checkAccounts', () => {
     const c = byArea(checkAccounts([acct({ p_verified_at: null })]), 'presets.verified');
     expect(c?.status).toBe('fail');
     expect(c?.detail).toContain('Apex 1');
-    expect(c?.remedy).toContain('never been checked');
+    expect(c?.remedy).toContain('nobody has checked');
   });
 
   it('warns rather than fails on a missing category', () => {
@@ -78,6 +78,34 @@ describe('checkAccounts', () => {
     expect(byArea(checks, 'accounts.preset')?.status).toBe('fail');
     expect(byArea(checks, 'accounts.credentials')?.status).toBe('fail');
     expect(byArea(checks, 'accounts.category')?.status).toBe('warn');
+  });
+});
+
+describe('human labels', () => {
+  it('gives every check a label that is not a code path', () => {
+    // These surface in the dashboard now, where "presets.verified" reads as a
+    // bug rather than a heading.
+    for (const c of checkAccounts([acct({ preset_id: null, credentials: {}, account_category: null, p_verified_at: null })])) {
+      expect(c.label, c.area).toBeTruthy();
+      expect(c.label, c.area).not.toContain('.');
+      expect(c.label, c.area).not.toBe(c.area);
+    }
+  });
+
+  it('keeps the machine key stable alongside the label', () => {
+    const c = byArea(checkAccounts([acct({ preset_id: null, p_verified_at: null })]), 'accounts.preset');
+    expect(c?.area).toBe('accounts.preset');
+    expect(c?.label).toBe('Account plans');
+  });
+
+  it('does not leak database column names into remedies', () => {
+    // verified_at, broker_accounts.credentials and account_category all
+    // appeared in guidance aimed at a person.
+    const checks = checkAccounts([acct({ preset_id: null, credentials: {}, account_category: null, p_verified_at: null })]);
+    const text = checks.map((c) => `${c.detail} ${c.remedy ?? ''}`).join(' ');
+    for (const leak of ['verified_at', 'broker_accounts.', 'account_category', 'account_size', 'preset_id']) {
+      expect(text, leak).not.toContain(leak);
+    }
   });
 });
 

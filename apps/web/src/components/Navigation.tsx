@@ -7,23 +7,65 @@ import { useTheme } from './ThemeProvider';
 import { LiveIndicator } from './LiveIndicator';
 import { useAuth } from './AuthProvider';
 
-// adminOnly links are also enforced server-side; hiding them here just keeps
-// customers from clicking into a guaranteed 403.
-const navItems = [
-  { href: '/ops', label: 'Operations', icon: '🎯' },
-  { href: '/', label: 'Dashboard', icon: '📊' },
-  { href: '/fleet', label: 'Fleet', icon: '🚀' },
-  { href: '/launchpad', label: 'LaunchPad', icon: '💰' },
-  { href: '/catalog', label: 'Plans', icon: '📚' },
-  { href: '/presets', label: 'Presets', icon: '🎛️', adminOnly: true },
-  { href: '/calculator', label: 'Calculator', icon: '🧮', adminOnly: true },
-  { href: '/strategies', label: 'Strategies', icon: '⚡' },
-  { href: '/accounts', label: 'Accounts', icon: '💳' },
-  { href: '/alerts', label: 'Alerts', icon: '🔔' },
-  { href: '/orders', label: 'Orders', icon: '📋' },
-  { href: '/health', label: 'Account Health', icon: '🩺', adminOnly: true },
-  { href: '/risk-events', label: 'Risk Events', icon: '⚠️' },
-  { href: '/settings', label: 'Settings', icon: '⚙️' },
+/**
+ * Grouped by WHEN you use it, not by what the code calls it.
+ *
+ * Fourteen flat entries with overlapping names — Plans beside Presets, Fleet
+ * beside Accounts, three separate logs — meant reading the whole list every
+ * time to find one page. The groups below answer "am I trading, setting up,
+ * looking something up, or fixing something", which is the question someone
+ * actually has before they click.
+ *
+ * A few renames for the same reason: "Risk Events" is what the table is called,
+ * "Blocked & Warnings" is what it contains. "Alerts" was ambiguous between
+ * notifications and inbound TradingView signals, so it says which.
+ *
+ * adminOnly is also enforced server-side; hiding here just avoids clicking
+ * into a guaranteed 403.
+ */
+const navGroups: Array<{
+  title: string;
+  items: Array<{ href: string; label: string; icon: string; adminOnly?: boolean; hint?: string }>;
+}> = [
+  {
+    title: 'Trading',
+    items: [
+      { href: '/ops', label: 'Operations', icon: '🎯', hint: 'Would a signal trade right now?' },
+      { href: '/fleet', label: 'Fleet', icon: '🚀', hint: 'Each account in detail' },
+      { href: '/launchpad', label: 'Payouts', icon: '💰', hint: 'What is ready to withdraw' },
+    ],
+  },
+  {
+    title: 'Setup',
+    items: [
+      { href: '/accounts', label: 'Broker Accounts', icon: '💳', hint: 'Connect a prop firm account' },
+      { href: '/catalog', label: 'Firm Plans', icon: '📚', hint: 'Rules to trade an account under' },
+      { href: '/strategies', label: 'Signal Sources', icon: '⚡', hint: 'TradingView webhook URLs' },
+    ],
+  },
+  {
+    title: 'History',
+    items: [
+      { href: '/alerts', label: 'Signals In', icon: '🔔', hint: 'Alerts TradingView sent' },
+      { href: '/orders', label: 'Orders', icon: '📋', hint: 'What reached the broker' },
+      { href: '/risk-events', label: 'Blocked & Warnings', icon: '⚠️', hint: 'Why a signal did not trade' },
+    ],
+  },
+  {
+    title: 'Tools',
+    items: [
+      { href: '/health', label: 'Account Health', icon: '🩺', adminOnly: true, hint: 'Our numbers vs the broker' },
+      { href: '/calculator', label: 'Rule Calculator', icon: '🧮', adminOnly: true, hint: 'Firm rules to risk settings' },
+      { href: '/presets', label: 'Rule Editor', icon: '🎛️', adminOnly: true, hint: 'Edit the raw numbers' },
+    ],
+  },
+  {
+    title: 'System',
+    items: [
+      { href: '/system', label: 'Status', icon: '📊', hint: 'Throughput and emergency stop' },
+      { href: '/settings', label: 'Settings', icon: '⚙️' },
+    ],
+  },
 ];
 
 export function Navigation() {
@@ -31,37 +73,48 @@ export function Navigation() {
   const { theme, toggleTheme } = useTheme();
   const { user, isAdmin, logout } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const visibleItems = navItems.filter((i) => !i.adminOnly || isAdmin);
+  const groups = navGroups
+    .map((g) => ({ ...g, items: g.items.filter((i) => !i.adminOnly || isAdmin) }))
+    .filter((g) => g.items.length > 0);
 
   const navContent = (
     <>
       <div className="p-6 border-b border-terminal-border">
-        <h1 className="text-xl font-bold text-terminal-text">Trade Automation</h1>
-        <p className="text-sm text-terminal-muted mt-1">MVP Dashboard</p>
+        <h1 className="text-xl font-bold text-terminal-text">EdgePilot</h1>
+        <p className="text-sm text-terminal-muted mt-1">Prop firm automation</p>
         <div className="mt-3">
           <LiveIndicator isConnected={true} showTime={false} />
         </div>
       </div>
 
-      <div className="flex-1 py-4 overflow-y-auto">
-        {visibleItems.map((item) => {
-          const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(`${item.href}/`));
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={() => setMobileOpen(false)}
-              className={`flex items-center px-6 py-3 text-sm font-medium transition-colors ${
-                isActive
-                  ? 'bg-terminal-buy/10 text-terminal-buy border-r-2 border-terminal-buy'
-                  : 'text-terminal-muted hover:bg-terminal-panel hover:text-terminal-text'
-              }`}
-            >
-              <span className="mr-3">{item.icon}</span>
-              {item.label}
-            </Link>
-          );
-        })}
+      <div className="flex-1 py-3 overflow-y-auto">
+        {groups.map((group) => (
+          <div key={group.title} className="mb-1">
+            <p className="px-6 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-terminal-muted/60">
+              {group.title}
+            </p>
+            {group.items.map((item) => {
+              const isActive =
+                pathname === item.href || pathname.startsWith(`${item.href}/`);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setMobileOpen(false)}
+                  title={item.hint}
+                  className={`flex items-center px-6 py-2 text-sm font-medium transition-colors ${
+                    isActive
+                      ? 'bg-terminal-buy/10 text-terminal-buy border-r-2 border-terminal-buy'
+                      : 'text-terminal-muted hover:bg-terminal-panel hover:text-terminal-text'
+                  }`}
+                >
+                  <span className="mr-3">{item.icon}</span>
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
+        ))}
       </div>
 
       <div className="p-4 border-t border-terminal-border space-y-3">
@@ -96,7 +149,7 @@ export function Navigation() {
           </div>
         )}
         <div className="text-xs text-terminal-muted">
-          <p className="mt-1">Version: 1.0.0-hardened</p>
+          <p className="mt-1">v1.0</p>
         </div>
       </div>
     </>
@@ -111,7 +164,7 @@ export function Navigation() {
 
       {/* Mobile top bar */}
       <div className="md:hidden flex items-center justify-between px-4 py-3 bg-terminal-surface border-b border-terminal-border">
-        <h1 className="text-lg font-bold text-terminal-text">Trade Automation</h1>
+        <h1 className="text-lg font-bold text-terminal-text">EdgePilot</h1>
         <button
           onClick={() => setMobileOpen(true)}
           className="text-terminal-muted hover:text-terminal-text transition-colors p-1"

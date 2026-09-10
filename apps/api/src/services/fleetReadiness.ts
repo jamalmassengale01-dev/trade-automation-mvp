@@ -28,23 +28,54 @@ const log = logger.child({ context: 'FleetReadiness' });
 export type CheckStatus = 'pass' | 'fail' | 'warn' | 'skipped';
 
 export interface ReadinessCheck {
+  /** Machine key. Stable, compact, used by the CLI column. */
   area: string;
+  /**
+   * Human name for the same thing.
+   *
+   * These checks now surface in the dashboard as well as the terminal, and
+   * "presets.verified" is a code path rather than a sentence. The CLI keeps
+   * the key; the UI shows this.
+   */
+  label: string;
   status: CheckStatus;
   detail: string;
   /** What to do about it. Absent when the check passed. */
   remedy?: string;
 }
 
+/** Human names, keyed by the machine area. */
+const LABELS: Record<string, string> = {
+  schema: 'Database',
+  strategy: 'Signal source',
+  accounts: 'Broker accounts',
+  'accounts.preset': 'Account plans',
+  'accounts.credentials': 'Broker credentials',
+  'accounts.category': 'Account type',
+  'accounts.disabled': 'Disabled accounts',
+  'presets.verified': 'Plan verification',
+  'env.session': 'Session override',
+  'env.webhook_secret': 'Webhook secret',
+  'env.system_key': 'System key',
+  'env.notifications': 'Notifications',
+  open_trades: 'Open trades',
+  broker: 'Broker connection',
+};
+
+const labelFor = (area: string): string =>
+  LABELS[area] ?? (area.startsWith('broker.') ? `Broker — ${area.slice(7)}` : area);
+
 export interface ReadinessReport {
   ready: boolean;
   checks: ReadinessCheck[];
 }
 
-const pass = (area: string, detail: string): ReadinessCheck => ({ area, status: 'pass', detail });
+const pass = (area: string, detail: string): ReadinessCheck =>
+  ({ area, label: labelFor(area), status: 'pass', detail });
 const fail = (area: string, detail: string, remedy: string): ReadinessCheck =>
-  ({ area, status: 'fail', detail, remedy });
+  ({ area, label: labelFor(area), status: 'fail', detail, remedy });
 const warn = (area: string, detail: string, remedy: string): ReadinessCheck =>
-  ({ area, status: 'warn', detail, remedy });
+  ({ area, label: labelFor(area), status: 'warn', detail, remedy });
 
 /** Does a table exist? Proxy for "migrations have been run to this version". */
 async function tableExists(name: string): Promise<boolean> {
@@ -107,7 +138,7 @@ async function checkStrategy(): Promise<ReadinessCheck> {
   if (r.rows.length === 0) {
     return fail(
       'strategy', 'No strategies configured',
-      'Create one on the Strategies page. Its webhook URL, secret included, is what goes into the TradingView alert.'
+      'Create one on the Signal Sources page. Its webhook URL, secret included, is what goes into the TradingView alert.'
     );
   }
   const active = r.rows.filter((s) => s.is_active && s.webhook_secret);
@@ -152,7 +183,7 @@ export function checkAccounts(accounts: AccountRow[]): ReadinessCheck[] {
   if (accounts.length === 0) {
     return [fail(
       'accounts', 'No active broker accounts',
-      'Add one on the Accounts page with broker credentials, then assign a preset.'
+      'Add one on the Broker Accounts page, then assign it a plan on Firm Plans.'
     )];
   }
 
@@ -167,11 +198,11 @@ export function checkAccounts(accounts: AccountRow[]): ReadinessCheck[] {
 
   checks.push(
     noPreset.length === 0
-      ? pass('accounts.preset', `${accounts.length} account(s), all with a preset`)
+      ? pass('accounts.preset', `${accounts.length} account(s), all with a plan`)
       : fail(
           'accounts.preset',
-          `No preset: ${noPreset.map((a) => a.name).join(', ')}`,
-          'Without a preset the GB executor skips the account entirely — it falls through to the generic copier path and no ladder or gate applies.'
+          `No plan assigned: ${noPreset.map((a) => a.name).join(', ')}`,
+          'Without a plan the account is skipped entirely — no risk limits are applied to it and it will never trade.'
         )
   );
 
@@ -181,7 +212,7 @@ export function checkAccounts(accounts: AccountRow[]): ReadinessCheck[] {
       : fail(
           'accounts.credentials',
           `No credentials: ${noCreds.map((a) => a.name).join(', ')}`,
-          'Set broker_accounts.credentials, then verify with: npm run tradovate:preflight'
+          'Add the broker login on the Broker Accounts page, then confirm it works with: npm run tradovate:preflight'
         )
   );
 
@@ -190,11 +221,11 @@ export function checkAccounts(accounts: AccountRow[]): ReadinessCheck[] {
   // daily cap reaches a live account.
   checks.push(
     unpublished.length === 0
-      ? pass('presets.verified', 'All assigned presets are verified')
+      ? pass('presets.verified', 'All assigned plans are verified')
       : fail(
           'presets.verified',
-          `Unverified preset on: ${unpublished.map((a) => `${a.name} (${a.p_name})`).join(', ')}`,
-          'Publish the preset from the Plans page, or stamp it on the Presets page. A preset with verified_at NULL has never been checked against the firm by a person.'
+          `Plan not yet verified on: ${unpublished.map((a) => `${a.name} (${a.p_name})`).join(', ')}`,
+          'Publish the plan from Firm Plans, or mark it verified in the Rule Editor. An unverified plan means nobody has checked those numbers against the firm\'s own rules page — and every trade is sized from them.'
         )
   );
 
@@ -204,7 +235,7 @@ export function checkAccounts(accounts: AccountRow[]): ReadinessCheck[] {
       : warn(
           'accounts.category',
           `No category/size: ${noCategory.map((a) => a.name).join(', ')}`,
-          'Set account_category and account_size so the per-firm account caps can count this account. Uncounted accounts never block a purchase, so an over-cap buy would not be caught.'
+          'Set the account type and size so this account counts toward the firm\'s limit on how many you may hold. Uncounted accounts mean an over-limit purchase would not be caught.'
         )
   );
 
@@ -337,7 +368,7 @@ export async function fleetReadiness(options: { skipBroker?: boolean } = {}): Pr
   checks.push(await checkOpenState());
 
   if (options.skipBroker) {
-    checks.push({ area: 'broker', status: 'skipped', detail: 'Skipped (--no-broker)' });
+    checks.push({ area: 'broker', label: labelFor('broker'), status: 'skipped', detail: 'Skipped (--no-broker)' });
   } else {
     checks.push(...await checkBrokers(accounts));
   }
