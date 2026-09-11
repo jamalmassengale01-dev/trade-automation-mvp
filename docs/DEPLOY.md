@@ -73,6 +73,24 @@ Fill in `.env`. The stack refuses to start without `POSTGRES_PASSWORD`, which
 is deliberate: a trading database on a public box with the password `postgres`
 is not a hypothetical mistake.
 
+**Set `POSTGRES_PASSWORD` before the first `up`, and do not change it after.**
+Postgres reads it only when it initialises an empty data directory; on every
+later start it ignores the variable and uses the password stored in the volume.
+Change it later and the database keeps the old one while the API connects with
+the new one, which surfaces as `password authentication failed for user
+"postgres"` and nothing else. To actually rotate it, change it inside the
+database and then in `.env`:
+
+```bash
+docker compose exec postgres psql -U postgres -c "ALTER USER postgres PASSWORD 'new-password'"
+# then set POSTGRES_PASSWORD=new-password in .env
+docker compose up -d
+```
+
+Destroying the volume (`docker compose down -v`) also resets it, by deleting
+every trade, payout and ladder state along with it. That is fine on a stack you
+have never traded on and is data loss on any other.
+
 ## 5. DNS, then start
 
 Point two A records at the server's IP and wait for them to resolve, or Let's

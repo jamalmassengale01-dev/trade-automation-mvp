@@ -79,6 +79,20 @@ docker compose restart api
 `docker compose logs --tail=40 api` will say `DATABASE NOT MIGRATED` if that was
 the cause. If it says something else, that message is the real problem.
 
+## "password authentication failed for user postgres"
+
+The Postgres volume was created with a different `POSTGRES_PASSWORD` than the
+one in `.env` now. Postgres only reads that variable when it first initialises
+an empty data directory — after that the stored password wins, whatever `.env`
+says. See the rotation note in `docs/DEPLOY.md`. On a stack you have never
+traded on, the quickest fix is to throw the volume away:
+
+```bash
+docker compose down -v      # deletes the database. Local preview only.
+docker compose up -d --build
+docker compose run --rm api npm run db:migrate
+```
+
 ---
 
 ## When it won't let you in
