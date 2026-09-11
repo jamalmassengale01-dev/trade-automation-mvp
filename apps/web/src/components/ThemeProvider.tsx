@@ -11,6 +11,21 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
+/**
+ * Applies the theme as a class on <html>.
+ *
+ * BOTH classes are set explicitly. Toggling only `dark` was the original bug:
+ * globals.css defines its light palette on `.light`, so removing `dark` left
+ * the root with no theme class at all and the dark variables still in force.
+ * The toggle appeared to do nothing, then appeared to do something worse once
+ * the body background alone started changing.
+ */
+function applyTheme(theme: Theme): void {
+  const root = document.documentElement;
+  root.classList.toggle('dark', theme === 'dark');
+  root.classList.toggle('light', theme === 'light');
+}
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>('dark');
   const [mounted, setMounted] = useState(false);
@@ -18,17 +33,27 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setMounted(true);
     // Default to dark (terminal aesthetic); respect saved preference if set
-    const savedTheme = localStorage.getItem('theme') as Theme | null;
-    const initialTheme: Theme = savedTheme ?? 'dark';
+    let savedTheme: Theme | null = null;
+    try {
+      savedTheme = localStorage.getItem('theme') as Theme | null;
+    } catch {
+      // Private windows and blocked site data throw on access. A remembered
+      // theme is a convenience; losing it must not blank the page.
+    }
+    const initialTheme: Theme = savedTheme === 'light' ? 'light' : 'dark';
     setTheme(initialTheme);
-    document.documentElement.classList.toggle('dark', initialTheme === 'dark');
+    applyTheme(initialTheme);
   }, []);
 
   const toggleTheme = () => {
     const newTheme = theme === 'light' ? 'dark' : 'light';
     setTheme(newTheme);
-    localStorage.setItem('theme', newTheme);
-    document.documentElement.classList.toggle('dark', newTheme === 'dark');
+    try {
+      localStorage.setItem('theme', newTheme);
+    } catch {
+      // Not remembered across reloads; still applied for this session.
+    }
+    applyTheme(newTheme);
   };
 
   if (!mounted) {

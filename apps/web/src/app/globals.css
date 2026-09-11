@@ -7,7 +7,33 @@
    Default: dark (terminal aesthetic)
    ============================================ */
 
+/*
+ * The palette lives here, not in tailwind.config.ts.
+ *
+ * It used to be hardcoded hex in the Tailwind theme, which meant every
+ * `bg-terminal-surface`, `border-terminal-border` and `text-terminal-text` was
+ * a fixed dark value in BOTH themes. Switching to light changed the body
+ * background and nothing else, so the result was near-white text on a
+ * near-white page — a theme toggle that produced an unreadable screen.
+ *
+ * Channels are space-separated rather than hex so Tailwind's `<alpha-value>`
+ * still works: the opacity modifiers used throughout (`bg-terminal-buy/10`,
+ * `border-amber-500/40`) depend on it.
+ */
 :root {
+  --term-bg:         2 6 23;        /* slate-950 — outer shell */
+  --term-surface:   15 23 42;       /* slate-900 — sidebar, cards */
+  --term-panel:     30 41 59;       /* slate-800 — inputs, inner panels */
+  --term-border:    51 65 85;       /* slate-700 */
+  --term-text:     241 245 249;     /* slate-100 */
+  --term-muted:    148 163 184;     /* slate-400 */
+  --term-buy:       52 211 153;     /* emerald-400 */
+  --term-sell:     251 113 133;     /* rose-400 */
+  --term-kill:     220 38 38;       /* red-600 */
+
+  --scrollbar-thumb: #334155;
+  --scrollbar-thumb-hover: #475569;
+
   --foreground-rgb: 241, 245, 249;    /* slate-100 */
   --background-rgb: 2, 6, 23;         /* slate-950 */
 
@@ -26,6 +52,21 @@
 
 /* Light mode overrides (opt-in) */
 .light {
+  --term-bg:       248 250 252;     /* slate-50 */
+  --term-surface:  255 255 255;     /* white — cards lift off the page */
+  --term-panel:    241 245 249;     /* slate-100 */
+  --term-border:   203 213 225;     /* slate-300 */
+  --term-text:      15 23 42;       /* slate-900 */
+  --term-muted:    100 116 139;     /* slate-500 */
+  /* The dark accents are 400-weight and wash out on white; these are the
+     600-weight equivalents, which hold contrast against a light ground. */
+  --term-buy:        5 150 105;     /* emerald-600 */
+  --term-sell:     225 29 72;       /* rose-600 */
+  --term-kill:     220 38 38;       /* red-600 */
+
+  --scrollbar-thumb: #cbd5e1;
+  --scrollbar-thumb-hover: #94a3b8;
+
   --foreground-rgb: 15, 23, 42;
   --background-rgb: 248, 250, 252;
 
@@ -40,8 +81,24 @@
   --toast-border: rgba(0, 0, 0, 0.1);
 }
 
-/* Keep .dark as alias for compatibility */
+/* Keep .dark as alias for compatibility.
+   It restates the dark palette rather than relying on :root, so that if both
+   classes ever end up on <html> the later rule wins outright instead of
+   leaving a half-light, half-dark mix. */
 .dark {
+  --term-bg:         2 6 23;
+  --term-surface:   15 23 42;
+  --term-panel:     30 41 59;
+  --term-border:    51 65 85;
+  --term-text:     241 245 249;
+  --term-muted:    148 163 184;
+  --term-buy:       52 211 153;
+  --term-sell:     251 113 133;
+  --term-kill:     220 38 38;
+
+  --scrollbar-thumb: #334155;
+  --scrollbar-thumb-hover: #475569;
+
   --foreground-rgb: 241, 245, 249;
   --background-rgb: 2, 6, 23;
 
@@ -123,12 +180,12 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: var(--scrollbar-thumb);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: var(--scrollbar-thumb-hover);
 }
 
 /* Kill switch glow animation */

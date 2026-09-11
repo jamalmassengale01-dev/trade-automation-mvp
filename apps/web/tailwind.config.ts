@@ -10,17 +10,22 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Trading Terminal palette
+        // Trading Terminal palette.
+        //
+        // Defined as CSS variables in globals.css so it flips with the theme —
+        // hardcoding hex here made light mode paint near-white text on a
+        // near-white page. `<alpha-value>` keeps the /10, /15, /40 opacity
+        // modifiers used across the pages working.
         terminal: {
-          bg: '#020617',       // slate-950 — outer shell
-          surface: '#0f172a',  // slate-900 — sidebar / panels
-          panel: '#1e293b',    // slate-800 — inner cards
-          border: '#334155',   // slate-700
-          text: '#f1f5f9',     // slate-100
-          muted: '#94a3b8',    // slate-400
-          buy: '#34d399',      // emerald-400 — buy / profit / positive
-          sell: '#fb7185',     // rose-400   — sell / loss / negative
-          killswitch: '#dc2626', // red-600
+          bg:         'rgb(var(--term-bg) / <alpha-value>)',      // outer shell
+          surface:    'rgb(var(--term-surface) / <alpha-value>)', // sidebar / cards
+          panel:      'rgb(var(--term-panel) / <alpha-value>)',   // inputs / inner panels
+          border:     'rgb(var(--term-border) / <alpha-value>)',
+          text:       'rgb(var(--term-text) / <alpha-value>)',
+          muted:      'rgb(var(--term-muted) / <alpha-value>)',
+          buy:        'rgb(var(--term-buy) / <alpha-value>)',     // profit / positive
+          sell:       'rgb(var(--term-sell) / <alpha-value>)',    // loss / negative
+          killswitch: 'rgb(var(--term-kill) / <alpha-value>)',
         },
         // Legacy status colors (keep for StatusBadge compatibility)
         success: {
