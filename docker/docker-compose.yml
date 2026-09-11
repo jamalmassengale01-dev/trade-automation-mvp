@@ -89,10 +89,12 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.web
+      args:
+        # Browser-reachable, and baked in at build time — see Dockerfile.web.
+        # Local: http://localhost:3001. Deployed: https://api.yourdomain.com.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
     container_name: trade-automation-web
     restart: unless-stopped
-    environment:
-      NEXT_PUBLIC_API_URL: http://api:3001
     ports:
       - "3000:3000"
     depends_on:

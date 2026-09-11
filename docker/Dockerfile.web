@@ -24,6 +24,17 @@ COPY apps/web/ ./apps/web/
 # Build shared types first (dependency for web)
 RUN npm run build --workspace=@trade-automation/shared-types
 
+# The API URL the BROWSER will use.
+#
+# NEXT_PUBLIC_* values are inlined by Next at BUILD time, not read at runtime,
+# so this has to be a build arg — setting it in compose `environment:` does
+# nothing for a production build, and next.config.js refuses to build without
+# it. It must also be an address the browser can reach: the pages are client
+# components, so they call the API from the user's machine, where the compose
+# service name `api` does not resolve.
+ARG NEXT_PUBLIC_API_URL=http://localhost:3001
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+
 # Build Next.js app
 RUN npm run build --workspace=@trade-automation/web
 
