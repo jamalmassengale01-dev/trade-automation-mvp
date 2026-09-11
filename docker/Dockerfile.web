@@ -55,6 +55,9 @@ COPY apps/web/package*.json ./apps/web/
 # Copy built artifacts
 COPY --from=builder /app/packages/shared-types/dist ./packages/shared-types/dist
 COPY --from=builder /app/apps/web/.next ./apps/web/.next
+# apps/web/public must exist in the repo or this COPY fails the build outright —
+# git does not track empty directories, so it needs a real file in it
+# (apps/web/public/robots.txt). Do not "tidy that away".
 COPY --from=builder /app/apps/web/public ./apps/web/public
 
 # Install production dependencies only

@@ -88,7 +88,8 @@ export default function OpsPage() {
 
       <p className="text-[11px] text-terminal-muted">
         Refreshes every 15s · generated {new Date(view.generatedAt).toLocaleTimeString()} ·
-        broker connectivity is not checked here, run <code>npm run fleet:check</code> for that
+        broker connectivity is not checked here — for that, run{' '}
+        <code>docker compose exec api npm run fleet:check</code> on the server
       </p>
     </div>
   );

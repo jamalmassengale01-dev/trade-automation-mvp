@@ -1,0 +1,4 @@
+# EdgePilot dashboard. Nothing here should ever appear in a search result —
+# it is an operator console for live brokerage accounts, not a public site.
+User-agent: *
+Disallow: /

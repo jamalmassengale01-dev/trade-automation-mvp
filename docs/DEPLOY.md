@@ -180,7 +180,18 @@ but the gap is real. Deploy after the close.
 
 ## Before the first live signal
 
+Most of the list below is checked for you:
+
+```bash
+docker compose exec api npm run fleet:check
+```
+
+It exits non-zero on any failure and names the fix for each, so it also works
+as a deploy gate. The remaining items are the ones no process can verify about
+itself.
+
 - [ ] `curl https://api.yourdomain.com/health` returns ok over HTTPS
+- [ ] `docker compose exec api npm run fleet:check` is clean
 - [ ] `docker compose exec api npm run tradovate:preflight` passes every check
 - [ ] A test webhook produces a `gb_trades` row
 - [ ] `NOTIFY_WEBHOOK_URL` set — send yourself one alert and confirm it arrives

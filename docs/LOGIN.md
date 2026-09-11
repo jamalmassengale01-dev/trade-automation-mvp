@@ -7,18 +7,22 @@ server — deliberately, since anyone who can reach the dashboard can move money
 
 ## First time: create your login
 
-On the server, from `apps/api`:
+The stack runs in Docker, so the command goes through the api container. From
+the `docker/` directory:
 
 ```bash
-npm run create-admin -- --email you@example.com --name "Jamal"
+docker compose exec api npm run create-admin -- --email you@example.com --name "Jamal"
 ```
 
 You'll be prompted for a password and it won't echo as you type. To pass it
 directly instead (it will land in your shell history):
 
 ```bash
-npm run create-admin -- --email you@example.com --name "Jamal" --password 'your-password-here'
+docker compose exec api npm run create-admin -- --email you@example.com --name "Jamal" --password 'your-password-here'
 ```
+
+Running outside Docker — a laptop with `npm run dev` — the same command works
+from the repository root, without the `docker compose exec api` prefix.
 
 **Password rule: at least 12 characters.** There are no "one capital, one
 number, one symbol" rules — length does far more work than composition, and
@@ -31,8 +35,8 @@ password**, which is how you reset your own.
 ### Admin vs customer
 
 ```bash
-npm run create-admin   # full access
-npm run create-user    # customer role
+docker compose exec api npm run create-admin   # full access
+docker compose exec api npm run create-user    # customer role
 ```
 
 Admin additionally sees Account Health, Rule Calculator and Rule Editor, and is
@@ -105,8 +109,8 @@ You need shell access to the server. That is the only recovery path, and it is
 the intended one: whoever controls the box controls the accounts.
 
 ```bash
-cd ~/trade-automation-mvp/apps/api
-npm run create-admin -- --email you@example.com --name "Jamal"
+cd ~/trade-automation-mvp/docker
+docker compose exec api npm run create-admin -- --email you@example.com --name "Jamal"
 ```
 
 Enter a new password when prompted and sign in again.

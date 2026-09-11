@@ -48,6 +48,18 @@ COPY apps/api/package*.json ./apps/api/
 COPY --from=builder /app/packages/shared-types/dist ./packages/shared-types/dist
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 
+# The TypeScript sources ship too, and deliberately.
+#
+# Every operator command is `tsx src/...` — db:migrate, create-admin,
+# fleet:check, tradovate:preflight. Without src these all fail inside the
+# container and the documented setup steps in docs/DEPLOY.md cannot be run at
+# all. db:migrate additionally reads its schema_*.sql files by __dirname, and
+# tsc does not copy .sql into dist, so a dist-only migrate finds no files,
+# "skips" all of them and exits 0 — a silent empty database.
+#
+# tsx is a runtime dependency (not dev) for the same reason.
+COPY --from=builder /app/apps/api/src ./apps/api/src
+
 # Install production dependencies only
 RUN npm ci --workspaces --include-workspace-root --omit=dev
 
@@ -61,5 +73,10 @@ EXPOSE 3001
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:3001/health || exit 1
 
-# Start the application
-CMD ["node", "apps/api/dist/index.js"]
+# Start the application.
+#
+# indexHardened, NOT index. src/index.ts is the original scaffold: it mounts
+# neither /api/auth nor /api/gb, so against it the dashboard cannot log in and
+# every Operations, Fleet and LaunchPad call 404s. The container ran it until
+# now, which is why the UI never worked in Docker.
+CMD ["node", "apps/api/dist/indexHardened.js"]
