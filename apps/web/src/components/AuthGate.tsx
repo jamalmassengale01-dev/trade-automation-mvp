@@ -105,7 +105,8 @@ function LoginForm() {
 
         <p className="text-[11px] text-terminal-muted text-center mt-4">
           No account yet? Run{' '}
-          <code className="text-terminal-text">npm run create-admin</code> in the API workspace.
+          <code className="text-terminal-text">docker compose exec api npm run create-admin</code>{' '}
+          on the server. See <code className="text-terminal-text">docs/LOGIN.md</code>.
         </p>
       </div>
     </div>
