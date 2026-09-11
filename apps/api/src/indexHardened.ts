@@ -27,6 +27,7 @@ import './jobs/workersHardened';
 
 // Import routes
 import accountsRoutes from './routes/accounts';
+import brokerKeysRoutes from './routes/brokerKeys';
 import alertsRoutes from './routes/alerts';
 import ordersRoutes from './routes/orders';
 import riskEventsRoutes from './routes/risk-events';
@@ -136,6 +137,7 @@ app.use('/api/auth', authRoutes);
 
 // Everything else requires a session.
 app.use('/api/accounts', requireAuth, accountsRoutes);
+app.use('/api/broker-keys', requireAuth, brokerKeysRoutes);
 app.use('/api/alerts', requireAuth, alertsRoutes);
 app.use('/api/orders', requireAuth, ordersRoutes);
 app.use('/api/risk-events', requireAuth, riskEventsRoutes);

@@ -29,6 +29,16 @@ export async function apiClient<T>(path: string, options: ApiOptions = {}): Prom
   return response.json();
 }
 
+/** A saved broker API key, minus the secret — which the API never returns. */
+export interface ApiKeySummary {
+  broker: string;
+  cid: string;
+  appId: string;
+  appVersion: string;
+  secretSet: boolean;
+  updatedAt: string;
+}
+
 export interface AuthUser {
   id: string;
   email: string;
@@ -59,6 +69,16 @@ export const api = {
   flattenAccount: (id: string) => apiClient<{ success: boolean; message: string }>(`/api/accounts/${id}/flatten`, { method: 'POST' }),
   disableAccount: (id: string) => apiClient<{ success: boolean; message: string }>(`/api/accounts/${id}/disable`, { method: 'POST' }),
   enableAccount: (id: string) => apiClient<{ success: boolean; message: string }>(`/api/accounts/${id}/enable`, { method: 'POST' }),
+
+  // Broker API keys — the operator's own key, saved once and reused by every
+  // account. The secret is write-only: getBrokerKey reports that one exists,
+  // never what it is.
+  getBrokerKey: (broker = 'tradovate') =>
+    apiClient<{ success: boolean; data: ApiKeySummary | null }>(`/api/broker-keys/${broker}`),
+  saveBrokerKey: (broker: string, body: { cid: string; sec: string; appId?: string; appVersion?: string }) =>
+    apiClient<{ success: boolean; data: ApiKeySummary }>(`/api/broker-keys/${broker}`, { method: 'PUT', body }),
+  deleteBrokerKey: (broker = 'tradovate') =>
+    apiClient<{ success: boolean; message: string }>(`/api/broker-keys/${broker}`, { method: 'DELETE' }),
 
   // Alerts
   getAlerts: (page = 1, pageSize = 20) =>

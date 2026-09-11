@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api } from '@/lib/api';
+import { api, ApiKeySummary } from '@/lib/api';
 import { StatusBadge } from '@/components/StatusBadge';
 import { SkeletonTable, Skeleton } from '@/components/Skeleton';
 import { toast } from '@/components/ToastProvider';
@@ -40,19 +40,31 @@ export default function AccountsPage() {
   const [selectedBroker, setSelectedBroker] = useState('tradovate');
   const [saving, setSaving] = useState(false);
 
+  // appId, appVersion and deviceId are gone from here entirely: they are not
+  // credentials, nobody has a correct value to type, and the server fills them.
   const [form, setForm] = useState({
     name: '',
     username: '',
     password: '',
-    appId: 'Sample App',
-    appVersion: '1.0',
     cid: '',
     sec: '',
-    deviceId: crypto.randomUUID(),
     environment: 'demo' as 'demo' | 'live',
   });
 
-  useEffect(() => { loadAccounts(); }, []);
+  const [apiKey, setApiKey] = useState<ApiKeySummary | null | undefined>(undefined);
+
+  useEffect(() => { loadAccounts(); loadApiKey(); }, []);
+
+  async function loadApiKey() {
+    try {
+      const r = await api.getBrokerKey('tradovate');
+      setApiKey((r.data as ApiKeySummary | null) ?? null);
+    } catch {
+      // Not fatal — the form still works with a per-account key, and the
+      // server gives the real error if neither is present.
+      setApiKey(null);
+    }
+  }
 
   async function loadAccounts() {
     try {
@@ -69,7 +81,7 @@ export default function AccountsPage() {
 
   function openAddFlow() {
     setSelectedBroker('tradovate');
-    setForm({ name: '', username: '', password: '', appId: 'Sample App', appVersion: '1.0', cid: '', sec: '', deviceId: crypto.randomUUID(), environment: 'demo' });
+    setForm({ name: '', username: '', password: '', cid: '', sec: '', environment: 'demo' });
     setStep('select-broker');
   }
 
@@ -86,18 +98,16 @@ export default function AccountsPage() {
 
     const credentials: Record<string, string> = {};
     if (selectedBroker === 'tradovate') {
-      const required = ['username', 'password', 'cid', 'sec'] as const;
-      for (const f of required) {
-        if (!form[f].trim()) { toast.error(`${f} is required`); return; }
-      }
+      // Only the firm-issued pair is required here. cid/sec come from the
+      // saved API key unless this account overrides them, and the server says
+      // so properly — naming where to get the missing half — if neither is set.
+      if (!form.username.trim()) { toast.error('Username is required'); return; }
+      if (!form.password.trim()) { toast.error('Password is required'); return; }
       credentials.username = form.username.trim();
       credentials.password = form.password.trim();
-      credentials.appId = form.appId.trim();
-      credentials.appVersion = form.appVersion.trim();
-      credentials.cid = form.cid.trim();
-      credentials.sec = form.sec.trim();
-      credentials.deviceId = form.deviceId.trim() || crypto.randomUUID();
       credentials.environment = form.environment;
+      if (form.cid.trim()) credentials.cid = form.cid.trim();
+      if (form.sec.trim()) credentials.sec = form.sec.trim();
     }
 
     setSaving(true);
@@ -361,35 +371,49 @@ export default function AccountsPage() {
                     </div>
                   )}
 
-                  <Field label="Tradovate Username (email)" required>
-                    <input className="input w-full" placeholder="you@example.com" value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} />
+                  {/*
+                    Only the two fields a prop firm actually sends you.
+
+                    Tradovate authentication needs seven values, but five of
+                    them are not per-account: cid/sec come from your own API
+                    key and are the same everywhere, and appId/appVersion/
+                    deviceId are not credentials at all. Asking for all seven
+                    implied the firm supplies all seven, so every connection
+                    stalled looking for values that were never in the email.
+                  */}
+                  <p className="text-xs text-terminal-muted">
+                    Enter the login your prop firm sent you when they issued the account.
+                  </p>
+
+                  <Field label="Username" hint="From your prop firm — often an email or an account number" required>
+                    <input className="input w-full" placeholder="you@example.com or APEX123456" value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} />
                   </Field>
 
-                  <Field label="API Password" hint="Set a dedicated API password in Tradovate → App Settings → API Access" required>
-                    <input className="input w-full" type="password" placeholder="Your API-dedicated password" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} />
+                  <Field label="Password" hint="The password for that login. If you set a separate API password in Tradovate, use that one." required>
+                    <input className="input w-full" type="password" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} />
                   </Field>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="Client ID (cid)" required>
-                      <input className="input w-full" placeholder="12345" value={form.cid} onChange={(e) => setForm((f) => ({ ...f, cid: e.target.value }))} />
-                    </Field>
-                    <Field label="Client Secret (sec)" required>
-                      <input className="input w-full" type="password" placeholder="••••••••" value={form.sec} onChange={(e) => setForm((f) => ({ ...f, sec: e.target.value }))} />
-                    </Field>
-                  </div>
+                  <ApiKeyStatus status={apiKey} />
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="App ID">
-                      <input className="input w-full" value={form.appId} onChange={(e) => setForm((f) => ({ ...f, appId: e.target.value }))} />
-                    </Field>
-                    <Field label="App Version">
-                      <input className="input w-full" value={form.appVersion} onChange={(e) => setForm((f) => ({ ...f, appVersion: e.target.value }))} />
-                    </Field>
-                  </div>
-
-                  <Field label="Device ID" hint="Auto-generated — leave as-is unless you have an existing device ID">
-                    <input className="input w-full font-mono text-xs" value={form.deviceId} onChange={(e) => setForm((f) => ({ ...f, deviceId: e.target.value }))} />
-                  </Field>
+                  <details className="text-xs">
+                    <summary className="cursor-pointer text-terminal-muted hover:text-terminal-text">
+                      Use a different API key for this account
+                    </summary>
+                    <div className="mt-3 space-y-3">
+                      <p className="text-terminal-muted">
+                        Leave these blank to use your saved key. Fill them in only if this
+                        account authenticates with its own Tradovate API key.
+                      </p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field label="Client ID (cid)">
+                          <input className="input w-full" placeholder="12345" value={form.cid} onChange={(e) => setForm((f) => ({ ...f, cid: e.target.value }))} />
+                        </Field>
+                        <Field label="Client Secret (sec)">
+                          <input className="input w-full" type="password" placeholder="••••••••" value={form.sec} onChange={(e) => setForm((f) => ({ ...f, sec: e.target.value }))} />
+                        </Field>
+                      </div>
+                    </div>
+                  </details>
                 </>
               )}
 
@@ -405,6 +429,42 @@ export default function AccountsPage() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Whether the shared Tradovate API key is in place.
+ *
+ * Shown inside the connect form because that is where its absence stops you.
+ * A key is not something a prop firm sends — it is a paid add-on on your own
+ * Tradovate account — so finding out at the moment of connecting, with no
+ * explanation, is a dead end.
+ */
+function ApiKeyStatus({ status }: { status: ApiKeySummary | null | undefined }) {
+  if (status === undefined) return null; // still loading; say nothing rather than guess
+
+  if (status) {
+    return (
+      <p className="text-xs text-terminal-muted">
+        Using your saved Tradovate API key (client ID {status.cid}). Change it in Settings.
+      </p>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 space-y-1">
+      <p className="text-xs font-medium text-amber-400">No Tradovate API key saved</p>
+      <p className="text-xs text-terminal-muted">
+        Tradovate will not accept a login without one. It is separate from the account your
+        prop firm issued: you create it on your own Tradovate account under Application
+        Settings → API Access, and the same key works for every account you connect.
+        Add it once in <a href="/settings" className="text-terminal-buy hover:underline">Settings</a>.
+      </p>
+      <p className="text-xs text-terminal-muted">
+        API Access is a paid add-on and requires a funded balance, so this is usually the
+        step that takes the longest.
+      </p>
     </div>
   );
 }

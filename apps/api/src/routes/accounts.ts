@@ -6,6 +6,11 @@ import { query } from '../db';
 import { getBrokerAdapter } from '../brokers';
 import logger from '../utils/logger';
 import { ownsRow, scopeClause } from '../middleware/ownership';
+import {
+  getApiKey,
+  resolveTradovateCredentials,
+  describeMissingCredentials,
+} from '../services/brokerApiKeys';
 
 const router = Router();
 const routeLogger = logger.child({ context: 'AccountsRoute' });
@@ -113,6 +118,25 @@ router.post('/', async (req: Request, res: Response) => {
       return;
     }
 
+    // A prop firm sends a username and a password. The cid/sec half of
+    // Tradovate auth comes from the operator's own API key and is identical
+    // for every account, so it is stored once and merged in here rather than
+    // retyped — including a secret — on every connect.
+    let resolvedCredentials: Record<string, unknown> = credentials;
+    if (broker_type === 'tradovate') {
+      const storedKey = await getApiKey(req.user!.id);
+      const resolution = resolveTradovateCredentials(credentials, storedKey);
+      if (resolution.missing.length > 0) {
+        res.status(400).json({
+          success: false,
+          error: describeMissingCredentials(resolution.missing),
+          missing: resolution.missing,
+        });
+        return;
+      }
+      resolvedCredentials = resolution.credentials;
+    }
+
     const defaultSettings = {
       multiplier: 1,
       longOnly: false,
@@ -183,7 +207,7 @@ router.post('/', async (req: Request, res: Response) => {
         // read is scoped by user_id, so an ownerless account was invisible to
         // the person who had just created it.
         req.user!.id,
-        name, broker_type, JSON.stringify(credentials), JSON.stringify(defaultSettings),
+        name, broker_type, JSON.stringify(resolvedCredentials), JSON.stringify(defaultSettings),
         account_category, account_size === null ? null : Number(account_size),
       ]
     );
