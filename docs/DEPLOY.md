@@ -146,7 +146,8 @@ does not survive the failure it exists for.
 
 ## 8. TradingView
 
-The webhook URL comes from the dashboard's Strategies page and already carries
+The webhook URL comes from the dashboard's Signal Sources page (or Settings) and
+already carries
 the per-strategy secret:
 
 ```
@@ -187,5 +188,6 @@ but the gap is real. Deploy after the close.
 - [ ] Backup cron installed and one dump verified
 - [ ] `GB_TEST_SESSION` **unset** (it is ignored when `NODE_ENV=production`,
       but leaving it set is a landmine for the day someone runs it otherwise)
-- [ ] Presets published — a preset with `verified_at` NULL has never been
-      confirmed against the firm's rules page by a human
+- [ ] Plans published on the Firm Plans page — an unverified plan means nobody
+      has checked those numbers against the firm's own rules, and every trade is
+      sized from them
