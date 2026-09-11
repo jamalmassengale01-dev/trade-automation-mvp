@@ -13,7 +13,7 @@ import config from './config';
 import logger from './utils/logger';
 import { connectAllAdapters, disconnectAllAdapters } from './brokers';
 import { closeWorkers } from './jobs/workersHardened';
-import { closePool } from './db';
+import { closePool, query } from './db';
 import { closeQueues } from './jobs/queues';
 import { runStartupReconciliation } from './services/reconciliation';
 import { cleanupExpiredKeys } from './services/idempotency';
@@ -192,6 +192,48 @@ app.use((err: Error, req: express.Request, res: express.Response, _next: express
 // SERVER STARTUP
 // ============================================
 
+/**
+ * Fails fast, and legibly, when the database has no schema.
+ *
+ * Checked here rather than left to the first query that happens to run, so the
+ * log says what to do instead of naming whichever table lost the race.
+ */
+async function assertSchemaReady(): Promise<void> {
+  // The tables boot actually touches. Not the whole schema — a partial
+  // migration is a different problem, and db:migrate is idempotent anyway.
+  const required = ['users', 'broker_accounts', 'gb_trades', 'presets'];
+
+  let present: string[];
+  try {
+    const r = await query<{ table_name: string }>(
+      `SELECT table_name FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = ANY($1)`,
+      [required],
+    );
+    present = r.rows.map((x) => x.table_name);
+  } catch (error) {
+    // Not a schema problem — Postgres itself is unreachable.
+    logger.error(
+      'Cannot reach the database. Check that the postgres container is healthy ' +
+      'and that DATABASE_URL is correct.',
+      { error: error instanceof Error ? error.message : String(error) },
+    );
+    throw error;
+  }
+
+  const missing = required.filter((t) => !present.includes(t));
+  if (missing.length === 0) return;
+
+  logger.error(
+    'DATABASE NOT MIGRATED — the API cannot start. Run:\n\n' +
+    '    docker compose run --rm api npm run db:migrate\n\n' +
+    'Use `run`, not `exec`: exec attaches to a running container, and this one ' +
+    'is about to exit, so exec will only report that it is restarting.',
+    { missingTables: missing },
+  );
+  process.exit(1);
+}
+
 async function startServer() {
   try {
     logger.info('Starting Trade Automation API (HARDENED)...', {
@@ -240,6 +282,21 @@ async function startServer() {
         'accepting a JSON POST) to change that.'
       );
     }
+
+    // Refuse to start on an un-migrated database, and SAY SO.
+    //
+    // Everything below this line queries tables that only exist after
+    // db:migrate — rehydrate() opens with `SELECT * FROM gb_trades`. On a fresh
+    // stack that throws, the catch calls process.exit(1), Docker restarts the
+    // container, and it throws again: a crash loop whose only symptom is
+    // `docker compose exec` replying "container is restarting". Which means the
+    // one command that fixes it cannot be run, because exec needs a container
+    // that stays up.
+    //
+    // The deadlock is broken by `docker compose run --rm api`, which starts a
+    // fresh container instead of attaching to the broken one. Nobody deduces
+    // that from a stack trace, so the message names it.
+    await assertSchemaReady();
 
     // Connect broker adapters
     await connectAllAdapters();

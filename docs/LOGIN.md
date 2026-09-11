@@ -11,18 +11,21 @@ The stack runs in Docker, so the command goes through the api container. From
 the `docker/` directory:
 
 ```bash
-docker compose exec api npm run create-admin -- --email you@example.com --name "Jamal"
+docker compose run --rm api npm run create-admin -- --email you@example.com --name "Jamal"
 ```
 
 You'll be prompted for a password and it won't echo as you type. To pass it
 directly instead (it will land in your shell history):
 
 ```bash
-docker compose exec api npm run create-admin -- --email you@example.com --name "Jamal" --password 'your-password-here'
+docker compose run --rm api npm run create-admin -- --email you@example.com --name "Jamal" --password 'your-password-here'
 ```
 
+`run --rm`, not `exec`: it starts a throwaway container, so it works whether or
+not the API is currently up — including on a fresh stack, where it is not.
+
 Running outside Docker — a laptop with `npm run dev` — the same command works
-from the repository root, without the `docker compose exec api` prefix.
+from the repository root, without the `docker compose run --rm api` prefix.
 
 **Password rule: at least 12 characters.** There are no "one capital, one
 number, one symbol" rules — length does far more work than composition, and
@@ -35,8 +38,8 @@ password**, which is how you reset your own.
 ### Admin vs customer
 
 ```bash
-docker compose exec api npm run create-admin   # full access
-docker compose exec api npm run create-user    # customer role
+docker compose run --rm api npm run create-admin   # full access
+docker compose run --rm api npm run create-user    # customer role
 ```
 
 Admin additionally sees Account Health, Rule Calculator and Rule Editor, and is
@@ -57,6 +60,24 @@ before a session window: *would a signal trade right now, and if not, why?*
 
 **Sessions last 7 days.** Signing out ends it immediately. Closing the browser
 does not.
+
+---
+
+## "Container is restarting"
+
+If any of the commands above answer `Error response from daemon: Container … is
+restarting, wait until the container is running`, the API is in a crash loop —
+almost always an un-migrated database on a fresh stack. `exec` cannot help,
+because it needs a container that stays up. Use `run` instead, which starts a
+fresh one:
+
+```bash
+docker compose run --rm api npm run db:migrate
+docker compose restart api
+```
+
+`docker compose logs --tail=40 api` will say `DATABASE NOT MIGRATED` if that was
+the cause. If it says something else, that message is the real problem.
 
 ---
 
@@ -110,7 +131,7 @@ the intended one: whoever controls the box controls the accounts.
 
 ```bash
 cd ~/trade-automation-mvp/docker
-docker compose exec api npm run create-admin -- --email you@example.com --name "Jamal"
+docker compose run --rm api npm run create-admin -- --email you@example.com --name "Jamal"
 ```
 
 Enter a new password when prompted and sign in again.

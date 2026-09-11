@@ -85,11 +85,23 @@ app.yourdomain.com   → YOUR_IP
 
 ```bash
 docker compose --profile public up -d --build
-docker compose exec api npm run db:migrate
-docker compose exec api npm run create-admin        # prompts for email + password
+
+# `run --rm`, not `exec`, for these two.
+#
+# The API refuses to start against an un-migrated database, so on a fresh stack
+# the api container is restarting when you get here and `exec` has nothing to
+# attach to — it just reports "container is restarting". `run` starts a fresh
+# container from the same image, does the job and removes itself.
+docker compose run --rm api npm run db:migrate
+docker compose run --rm api npm run create-admin    # prompts for email + password
 #   Password must be 12+ characters. Signing in, lockouts and recovery:
 #   see docs/LOGIN.md
+
+docker compose restart api                          # now that the schema exists
 ```
+
+After the first migration the api container stays up, and everything else in
+this document uses `exec`.
 
 Check it:
 
@@ -171,7 +183,7 @@ Update:
 ```bash
 cd ~/trade-automation-mvp && git pull
 cd docker && docker compose --profile public up -d --build
-docker compose exec api npm run db:migrate  # migrations are idempotent
+docker compose run --rm api npm run db:migrate  # idempotent, safe to re-run
 ```
 
 **Do not update during a session window** (3:00–3:30, 10:00–10:30, 14:00–14:30

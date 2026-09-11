@@ -84,19 +84,34 @@ describe('documented commands', () => {
   const rootPkg = JSON.parse(read('package.json'));
   const docs = ['docs/DEPLOY.md', 'docs/LOGIN.md'].map(read).join('\n');
 
-  it('every `docker compose exec api npm run X` in the docs is a root script', () => {
+  it('every `npm run X` the docs run in a container is a root script', () => {
     // The container's working directory is the repo root, so `npm run X` there
     // resolves against the ROOT package.json, not apps/api's. A script that
     // only exists in the workspace gives "Missing script" at the one moment
     // someone is following the setup guide.
     const used = [
-      ...docs.matchAll(/docker compose exec (?:-\w+ )?api npm run ([\w:-]+)/g),
+      ...docs.matchAll(/docker compose (?:exec|run)(?: --rm| -\w+)* api npm run ([\w:-]+)/g),
     ].map((m) => m[1]);
     expect(used.length).toBeGreaterThan(0);
     for (const script of new Set(used)) {
       expect(rootPkg.scripts, `docs run "npm run ${script}" in the container`).toHaveProperty(
         script,
       );
+    }
+  });
+
+  it('bootstrap commands use `run`, not `exec`', () => {
+    // The API exits on an un-migrated database, so on a fresh stack its
+    // container is restarting and `exec` has nothing to attach to. db:migrate
+    // and create-admin are exactly the commands someone reaches for at that
+    // moment, so both must be documented as `run --rm`.
+    for (const script of ['db:migrate', 'create-admin']) {
+      expect(
+        docs,
+        `${script} must be documented as \`docker compose run --rm api\` — ` +
+          'exec cannot work before the first migration',
+      ).toContain(`docker compose run --rm api npm run ${script}`);
+      expect(docs).not.toContain(`docker compose exec api npm run ${script}`);
     }
   });
 
