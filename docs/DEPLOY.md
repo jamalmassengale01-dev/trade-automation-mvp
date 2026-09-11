@@ -87,6 +87,8 @@ app.yourdomain.com   → YOUR_IP
 docker compose --profile public up -d --build
 docker compose exec api npm run db:migrate
 docker compose exec api npm run create-admin        # prompts for email + password
+#   Password must be 12+ characters. Signing in, lockouts and recovery:
+#   see docs/LOGIN.md
 ```
 
 Check it:
