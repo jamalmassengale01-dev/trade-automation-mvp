@@ -115,6 +115,13 @@ describe('documented commands', () => {
     }
   });
 
+  it('the login screen names the same command as the docs', () => {
+    // The one place a stranded operator actually reads. It drifted from the
+    // docs once already, within an hour of being written.
+    const authGate = read('apps/web/src/components/AuthGate.tsx');
+    expect(authGate).toContain('docker compose run --rm api npm run create-admin');
+  });
+
   it('root scripts forward arguments to the workspace', () => {
     // `npm run create-admin --workspace=X` swallows trailing flags as npm's
     // own. The trailing `--` is what makes `-- --email you@example.com` reach
