@@ -57,13 +57,43 @@ cannot issue a certificate without one. Any registrar, ~$12/year.
 ```bash
 ssh root@YOUR_IP
 
-adduser edgepilot && usermod -aG sudo edgepilot
+adduser edgepilot                                                    # asks for a password, then 5 optional fields
+usermod -aG sudo edgepilot
 rsync --archive --chown=edgepilot:edgepilot ~/.ssh /home/edgepilot   # keep your key
+```
 
-# Disable password logins — a public box with password SSH is found within hours.
-sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/;s/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+**Now stop and test, from a second terminal, before locking anything:**
+
+```bash
+ssh edgepilot@YOUR_IP
+```
+
+It must let you in **without asking for a password**. If it prompts, the key did
+not copy — fix that first. The next block removes root login and password auth,
+so running it before this check is how you lock yourself out of a box you just
+paid for. Keep the root session open until you are back in as `edgepilot`.
+
+```bash
+# A public box with password SSH is found by scanners within hours.
+#
+# Written as a drop-in rather than edited into sshd_config, because cloud images
+# ship /etc/ssh/sshd_config.d/50-cloud-init.conf and the Include sits at the TOP
+# of sshd_config. OpenSSH takes the FIRST value it obtains for most keywords, so
+# a sed against the main file loses to the include and silently changes nothing.
+# The 00- prefix sorts ahead of 50-cloud-init, so this one wins.
+printf 'PermitRootLogin no\nPasswordAuthentication no\n' \
+  > /etc/ssh/sshd_config.d/00-edgepilot.conf
+
+sshd -t                      # validates the config. A typo here is a locked door.
 systemctl restart ssh
 
+# Verify what is actually in force, rather than what you believe you set.
+sshd -T | grep -Ei 'permitrootlogin|passwordauthentication'
+#   → permitrootlogin no
+#   → passwordauthentication no
+```
+
+```bash
 ufw allow OpenSSH && ufw allow 80 && ufw allow 443 && ufw --force enable
 ```
 
