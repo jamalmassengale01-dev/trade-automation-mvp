@@ -67,7 +67,12 @@ services:
     ports:
       - "3001:3001"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
+      # 127.0.0.1, NOT localhost. Node listens on 0.0.0.0, which is IPv4 only,
+      # but inside the container `localhost` resolves to ::1 first and busybox
+      # wget connects there — "connection refused", forever, while the server
+      # serves every real request perfectly. A healthcheck that is always red
+      # is worse than none: it is the one you learn to ignore.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/health || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3

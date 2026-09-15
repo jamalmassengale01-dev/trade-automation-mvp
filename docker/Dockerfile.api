@@ -71,7 +71,9 @@ EXPOSE 3001
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:3001/health || exit 1
+  # 127.0.0.1, not localhost — see the note in docker-compose.yml. Node binds
+  # IPv4 only; `localhost` resolves to ::1 inside the container and refuses.
+  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:3001/health || exit 1
 
 # Start the application.
 #

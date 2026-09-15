@@ -44,6 +44,22 @@ describe('API image', () => {
     expect(apiDockerfile).toMatch(/COPY --from=builder \/app\/apps\/api\/src \.\/apps\/api\/src/);
   });
 
+  it('healthchecks address 127.0.0.1, never localhost', () => {
+    // Node listens on 0.0.0.0 (IPv4 only). Inside a container `localhost`
+    // resolves to ::1 first, so the probe is refused while the server is
+    // serving perfectly — the container reports unhealthy forever. Caught on
+    // the first real deploy, where `docker compose ps` said unhealthy and
+    // `curl /health` from the host returned 200.
+    const compose = read('docker/docker-compose.yml');
+    for (const [name, text] of [['compose', compose], ['Dockerfile.api', apiDockerfile]] as const) {
+      const probes = [...text.matchAll(/wget[^\n]*?(https?:\/\/[^\s"']+)/g)].map((m) => m[1]);
+      for (const url of probes) {
+        expect(url, `${name} healthcheck must not probe localhost`).not.toMatch(/\/\/localhost[:/]/);
+      }
+    }
+    expect(compose).toContain('http://127.0.0.1:3001/health');
+  });
+
   it('keeps tsx a runtime dependency', () => {
     // The production stage installs --omit=dev. A dev-only tsx means every
     // operator command is "tsx: not found" on the server.
