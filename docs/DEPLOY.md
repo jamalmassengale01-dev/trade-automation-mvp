@@ -29,14 +29,20 @@ leaves little headroom.
 That rules out the cheapest tier at most providers, including DigitalOcean's
 $6 droplet, which is 1 GB.
 
-- **Hetzner CPX21** — 3 vCPU, 4 GB, 80 GB NVMe, roughly $4–5/mo. Best value by
-  a wide margin. Note the **CX** series is EU-only: Hetzner's US regions
-  (Ashburn VA, Hillsboro OR) run **CPX/CCX**, so CX22 is not an option there.
-- **DigitalOcean** — friendlier console, roughly double the price for the same
-  memory. Take the 4 GB tier, not the $6 or $12 one.
+- **Hetzner CPX22** — 2 vCPU (AMD), 4 GB, 80 GB, 20 TB traffic. **$22.99/mo**
+  in Helsinki, **$20.49/mo** in Ashburn, plus $0.60/mo for the IPv4 address.
+  Choose *Shared Resources → Regular Performance*. Note the **CX** series is
+  EU-only: Hetzner's US regions (Ashburn VA, Hillsboro OR) run **CPX/CCX**.
+- **DigitalOcean** — friendlier console, ~$24/mo for the same 4 GB. Take the
+  4 GB tier, not the $6 or $12 one.
 
-Prices move; Hetzner raised cloud pricing 30–37% in April 2026. Check the
-provider's own page rather than trusting the figures here.
+Those Hetzner figures are read off the console in September 2026, not a review
+site. Earlier drafts of this file quoted ~$5/mo from third-party articles that
+predated the April 2026 increase — off by a factor of four. Hetzner is still
+marginally cheaper than DigitalOcean at this tier, but the "4x cheaper" era is
+over; pick on region and console preference, not price.
+
+Prices move. Read them off the provider's own console before committing.
 
 Choose a **US East or Chicago** region. Tradovate is US-based. A 2-minute-bar
 strategy sending market orders with a 120-second GTD is not latency-sensitive,
