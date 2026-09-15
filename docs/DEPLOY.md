@@ -20,12 +20,31 @@ account.
 
 ## 1. Pick a box
 
-2 GB RAM is enough for Node, Postgres and Redis together. Hetzner CX22 (~€4/mo)
-or DigitalOcean's $6 droplet both work.
+**Get 4 GB of RAM.** Postgres, Redis, the API and Next.js all resident is not
+the constraint — the build is. `docker compose up -d --build` runs `next build`
+on the box, which is memory-hungry and will be OOM-killed on a 1 GB instance,
+usually after several minutes of looking like it is working. 2 GB builds but
+leaves little headroom.
+
+That rules out the cheapest tier at most providers, including DigitalOcean's
+$6 droplet, which is 1 GB.
+
+- **Hetzner CPX21** — 3 vCPU, 4 GB, 80 GB NVMe, roughly $4–5/mo. Best value by
+  a wide margin. Note the **CX** series is EU-only: Hetzner's US regions
+  (Ashburn VA, Hillsboro OR) run **CPX/CCX**, so CX22 is not an option there.
+- **DigitalOcean** — friendlier console, roughly double the price for the same
+  memory. Take the 4 GB tier, not the $6 or $12 one.
+
+Prices move; Hetzner raised cloud pricing 30–37% in April 2026. Check the
+provider's own page rather than trusting the figures here.
 
 Choose a **US East or Chicago** region. Tradovate is US-based. A 2-minute-bar
 strategy sending market orders with a 120-second GTD is not latency-sensitive,
 but the right region is free.
+
+You also need a **domain**, which is easy to forget until step 5 stops you.
+TradingView will not POST to a bare IP or over plain HTTP, and Let's Encrypt
+cannot issue a certificate without one. Any registrar, ~$12/year.
 
 ## 2. Harden it before anything else
 
