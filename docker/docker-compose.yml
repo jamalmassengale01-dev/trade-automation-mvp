@@ -64,8 +64,19 @@ services:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/trade_automation
       REDIS_URL: redis://redis:6379
       LOG_LEVEL: ${LOG_LEVEL:-info}
+    # Loopback only, for the same reason as Postgres and Redis above — and for
+    # one extra reason that catches people out: DOCKER BYPASSES UFW. Docker
+    # writes its own iptables rules into the DOCKER chain, which is traversed
+    # before ufw's INPUT chain, so "3001:3001" is reachable from the internet
+    # even though ufw allows nothing but 22, 80 and 443. Closing the port in
+    # the firewall does not close it.
+    #
+    # Nothing outside needs this port anyway: Caddy reaches the API over the
+    # compose network as api:3001. Publishing it to 0.0.0.0 exposed the webhook
+    # endpoint and every API route over plain HTTP, bypassing the TLS that was
+    # just set up. An SSH tunnel still works against 127.0.0.1.
     ports:
-      - "3001:3001"
+      - "127.0.0.1:3001:3001"
     healthcheck:
       # 127.0.0.1, NOT localhost. Node listens on 0.0.0.0, which is IPv4 only,
       # but inside the container `localhost` resolves to ::1 first and busybox
@@ -98,8 +109,11 @@ services:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
     container_name: trade-automation-web
     restart: unless-stopped
+    # Loopback only — see the note on the api service. Caddy proxies to
+    # web:3000 over the compose network; the host port exists for SSH tunnels
+    # during setup, not for the public.
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       - api
 
@@ -113,8 +127,14 @@ services:
   # Caddy obtains and renews Let's Encrypt certificates automatically, which
   # is one fewer thing to remember in ninety days.
   #
-  # Ports 3000/3001 stay published for local access during setup. Close them
-  # in the host firewall once Caddy is serving; see docs/DEPLOY.md.
+  # Caddy is the ONLY service that publishes to the public interface. The api
+  # and web ports are bound to 127.0.0.1 — reachable over an SSH tunnel during
+  # setup, and by Caddy over the compose network, but not from the internet.
+  #
+  # An earlier version of this comment said to close 3000/3001 "in the host
+  # firewall once Caddy is serving". That advice does not work: Docker's
+  # iptables rules are traversed before ufw's, so a ufw rule cannot close a
+  # Docker-published port. The binding itself has to be qualified.
   caddy:
     image: caddy:2-alpine
     container_name: trade-automation-caddy

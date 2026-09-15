@@ -97,8 +97,31 @@ sshd -T | grep -Ei 'permitrootlogin|passwordauthentication'
 ufw allow OpenSSH && ufw allow 80 && ufw allow 443 && ufw --force enable
 ```
 
-Do **not** open 3000, 3001, 5432 or 6379. Postgres and Redis are already bound
-to loopback in compose; the app ports are reached through Caddy.
+Do **not** open 3000, 3001, 5432 or 6379.
+
+**And know what ufw does not protect you from.** Docker writes its own iptables
+rules into the DOCKER chain, which is traversed *before* ufw's INPUT chain — so
+a port published as `"3001:3001"` is reachable from the internet no matter what
+ufw says, and no ufw rule will close it. The firewall above is real protection
+for anything the host itself listens on, and no protection at all for a
+container port.
+
+What actually closes them is the binding in `docker-compose.yml`, where every
+service except Caddy publishes to `127.0.0.1` explicitly. If you ever add a
+service, qualify its port the same way; `deployment.test.ts` fails the build if
+you forget.
+
+Verify it from somewhere other than the server — your laptop, your phone off
+wifi:
+
+```bash
+curl --max-time 5 http://YOUR_IP:3001/health   # must time out or refuse
+curl --max-time 5 http://YOUR_IP:3000          # must time out or refuse
+curl https://api.yourdomain.com/health         # must return ok
+```
+
+A JSON response from either of the first two means the API is answering the
+public internet over plain HTTP, around the TLS you just configured.
 
 ## 3. Docker
 

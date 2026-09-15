@@ -60,6 +60,30 @@ describe('API image', () => {
     expect(compose).toContain('http://127.0.0.1:3001/health');
   });
 
+  it('publishes only 80 and 443 to the public interface', () => {
+    // Docker bypasses ufw: its rules land in the DOCKER chain, traversed before
+    // ufw's INPUT chain, so an unqualified "3001:3001" is world-reachable even
+    // with a firewall that allows only 22, 80 and 443. Closing the port in ufw
+    // does not close it — the binding has to be qualified here.
+    //
+    // Only Caddy should answer from outside; everything else is reached over
+    // the compose network or an SSH tunnel.
+    const compose = read('docker/docker-compose.yml');
+    const published = [...compose.matchAll(/^\s+- "([^"]+)"\s*$/gm)]
+      .map((m) => m[1])
+      .filter((s) => /^(\d+\.\d+\.\d+\.\d+:)?\d+:\d+$/.test(s));
+
+    expect(published.length).toBeGreaterThan(0);
+    for (const mapping of published) {
+      const hostPort = mapping.split(':').slice(-2)[0];
+      if (['80', '443'].includes(hostPort)) continue; // Caddy, deliberately public
+      expect(
+        mapping,
+        `${mapping} publishes to every interface; qualify it with 127.0.0.1`,
+      ).toMatch(/^127\.0\.0\.1:/);
+    }
+  });
+
   it('keeps tsx a runtime dependency', () => {
     // The production stage installs --omit=dev. A dev-only tsx means every
     // operator command is "tsx: not found" on the server.
