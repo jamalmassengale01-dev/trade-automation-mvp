@@ -662,4 +662,6 @@ export interface OperationsView {
   accounts: OpsAccount[];
   refusals: Array<{ at: string; accountName: string | null; ruleType: string; message: string }>;
   blockedCount: number;
+  /** One sentence answering "would anything trade right now". Server-computed. */
+  accountsSummary: string;
 }

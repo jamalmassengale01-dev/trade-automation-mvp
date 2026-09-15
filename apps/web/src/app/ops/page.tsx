@@ -51,8 +51,6 @@ export default function OpsPage() {
   }
   if (!view) return <Skeleton />;
 
-  const clear = view.accounts.filter((a) => a.blockers.length === 0);
-
   return (
     <div className="space-y-5">
       <SessionBar view={view} />
@@ -62,13 +60,10 @@ export default function OpsPage() {
       {/* The headline: how many accounts would actually take a signal. */}
       <div className="flex items-baseline gap-3">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-terminal-text">Accounts</h2>
-        <span className="text-xs text-terminal-muted">
-          {clear.length === view.accounts.length
-            ? 'all would trade a signal right now'
-            : clear.length === 0
-            ? 'none would trade a signal right now'
-            : `${clear.map((a) => a.name).join(', ')} would trade right now`}
-        </span>
+        {/* Computed server-side in services/operations.ts, where it is tested.
+            Done here originally, and the empty-fleet case read "all would trade
+            a signal right now" — 0 === 0 — above a card saying none would. */}
+        <span className="text-xs text-terminal-muted">{view.accountsSummary}</span>
       </div>
 
       {view.accounts.length === 0 && (

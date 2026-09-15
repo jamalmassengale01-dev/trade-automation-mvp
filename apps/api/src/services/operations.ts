@@ -90,6 +90,31 @@ export interface OperationsView {
   refusals: OpsRefusal[];
   /** Accounts that would refuse a signal right now. The headline number. */
   blockedCount: number;
+  /** One sentence answering "would anything trade right now". */
+  accountsSummary: string;
+}
+
+/**
+ * The sentence above the account list.
+ *
+ * Lives here rather than in the page because it is a claim about whether the
+ * fleet would trade, and claims like that need a test. The first version was
+ * written in the component as `clear.length === accounts.length ? 'all would
+ * trade' : ...`, which on an empty fleet is 0 === 0 — so a server with no
+ * accounts at all announced that ALL of them would take a signal, directly
+ * above a card explaining that none would. Seen within a minute of the first
+ * real deployment.
+ *
+ * On a screen whose entire job is answering "would a signal trade right now",
+ * saying yes when the answer is no is the only truly unacceptable output.
+ */
+export function summariseAccounts(names: string[], clearNames: string[]): string {
+  // Order matters: the empty case must be tested before any comparison of
+  // counts, because zero equals zero.
+  if (names.length === 0) return 'no accounts connected yet';
+  if (clearNames.length === 0) return 'none would trade a signal right now';
+  if (clearNames.length === names.length) return 'all would trade a signal right now';
+  return `${clearNames.join(', ')} would trade right now`;
 }
 
 const SESSION_LABEL: Record<Session, string> = {
@@ -303,6 +328,10 @@ export async function operationsView(scopeSql = 'TRUE', params: unknown[] = []):
       message: x.message,
     })),
     blockedCount: accounts.filter((a) => a.blockers.length > 0).length,
+    accountsSummary: summariseAccounts(
+      accounts.map((a) => a.name),
+      accounts.filter((a) => a.blockers.length === 0).map((a) => a.name),
+    ),
   };
 
   log.debug('Operations view assembled', {
