@@ -111,4 +111,33 @@ describe('credentialsToAuthRequest', () => {
   it('sends cid as a number — Tradovate rejects the string form', () => {
     expect(credentialsToAuthRequest(CREDS).cid).toBe(9999);
   });
+
+  // A prop firm username in the cid field is the specific mistake this guards:
+  // the two fields sit together and both read as "the ID of the thing I am
+  // connecting", but only one of them is issued by the firm.
+  it('refuses a prop firm username in the cid field before any network call', () => {
+    expect(() => credentialsToAuthRequest({ ...CREDS, cid: 'PP-006168' }))
+      .toThrow(TradovateAuthError);
+  });
+
+  it('blames the API key, not the password, when the cid is not numeric', () => {
+    // The whole point. Tradovate answers a null cid with the same generic text
+    // it uses for a bad password, so an unguarded attempt tells the operator to
+    // re-check credentials that were correct.
+    try {
+      credentialsToAuthRequest({ ...CREDS, cid: 'PP-006168' });
+      expect.unreachable('should have thrown');
+    } catch (e) {
+      const err = e as TradovateAuthError;
+      expect(err.kind).toBe('no_api_access');
+      expect(err.message).toMatch(/API Access/);
+      expect(err.message).not.toMatch(/password/i);
+    }
+  });
+
+  it('would otherwise serialise a bad cid as null, which is why this is caught here', () => {
+    // Documents the underlying trap rather than asserting on our own code:
+    // NaN has no JSON representation, so it silently becomes null on the wire.
+    expect(JSON.stringify({ cid: Number('PP-006168') })).toBe('{"cid":null}');
+  });
 });

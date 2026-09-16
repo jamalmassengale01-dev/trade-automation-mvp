@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   resolveTradovateCredentials,
   describeMissingCredentials,
+  validateCid,
   DEFAULT_APP_ID,
   DEFAULT_APP_VERSION,
   BrokerApiKey,
@@ -128,5 +129,31 @@ describe('describeMissingCredentials', () => {
       const msg = describeMissingCredentials(missing);
       expect(msg.length).toBeGreaterThan(40);
     }
+  });
+});
+
+describe('validateCid', () => {
+  it('accepts a numeric client ID', () => {
+    expect(() => validateCid('12345')).not.toThrow();
+  });
+
+  // The mistake this exists for: a prop firm login typed into the API key form
+  // because both fields read as "the ID of the account I am connecting".
+  it('rejects a prop firm username', () => {
+    expect(() => validateCid('PP-006168')).toThrow(/not a Tradovate client ID/);
+  });
+
+  it('rejects anything with a non-digit, not just hyphens', () => {
+    for (const bad of ['APEX123456', '123abc', '12 345', '1.5', '-1', '']) {
+      expect(() => validateCid(bad), bad).toThrow();
+    }
+  });
+
+  // The error has to redirect the person to the right errand. Telling them the
+  // credentials were wrong sends them back to the prop firm, which cannot help:
+  // the missing thing is a paid Tradovate add-on on their own account.
+  it('names where a cid actually comes from', () => {
+    expect(() => validateCid('PP-006168')).toThrow(/API Access/);
+    expect(() => validateCid('PP-006168')).toThrow(/not your prop firm username/);
   });
 });

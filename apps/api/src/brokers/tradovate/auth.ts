@@ -185,17 +185,38 @@ export async function requestAccessToken(
   }
 }
 
-/** Shape adapter credentials into the auth request body. */
+/**
+ * Shape adapter credentials into the auth request body.
+ *
+ * Throws on a non-numeric `cid` instead of sending it. `Number('PP-006168')` is
+ * `NaN` and `JSON.stringify` serialises that as `null`, so a mistyped client ID
+ * reaches Tradovate as `cid: null` and comes back as the same generic rejection
+ * a wrong password produces. `classifyAuthResponse` cannot tell those apart, so
+ * the operator is told their credentials were refused when the credentials were
+ * fine — the fix is a paid add-on on Tradovate's site, not a re-typed password.
+ *
+ * `saveApiKey` blocks this at the settings page. This is the second gate, for
+ * per-account credential overrides that never pass through it.
+ */
 export function credentialsToAuthRequest(creds: {
   username: string; password: string; appId: string;
   appVersion: string; cid: string | number; sec: string; deviceId: string;
 }): TradovateAuthRequest {
+  const cid = Number(creds.cid);
+  if (!Number.isFinite(cid)) {
+    throw new TradovateAuthError(
+      'no_api_access',
+      `Client ID "${creds.cid}" is not a number, so no authentication was attempted. ` +
+      'A Tradovate cid is a numeric ID issued with an API key (Application Settings ' +
+      '→ API Access, requires the paid add-on). It is not a prop firm username.',
+    );
+  }
   return {
     name: creds.username,
     password: creds.password,
     appId: creds.appId,
     appVersion: creds.appVersion,
-    cid: Number(creds.cid),
+    cid,
     sec: creds.sec,
     deviceId: creds.deviceId,
   };

@@ -96,6 +96,31 @@ export interface SaveApiKeyInput {
   appVersion?: string;
 }
 
+/**
+ * A Tradovate `cid` is a small positive integer. Anything else is not a client
+ * ID, and the most likely thing to be typed in its place is the prop firm's
+ * account username — the two fields sit next to each other and both look like
+ * "the ID of the thing I am connecting".
+ *
+ * Rejecting it here rather than at authentication time is the whole point.
+ * `credentialsToAuthRequest` does `Number(cid)`, so a username becomes `NaN`,
+ * which `JSON.stringify` writes as `cid: null`. Tradovate then returns its
+ * generic rejection text, which `classifyAuthResponse` can only read as
+ * `'credentials'` — and the operator is told their username and password were
+ * refused, which is false and sends them to re-check the one thing that was
+ * right. That conversation happens inside a 30-minute session window.
+ */
+export function validateCid(cid: string): void {
+  if (!/^\d+$/.test(cid)) {
+    throw new Error(
+      `"${cid}" is not a Tradovate client ID. The cid is a number (e.g. 12345) ` +
+      'issued with an API key under your own Tradovate account, Application ' +
+      'Settings → API Access. It is not your prop firm username, and no prop ' +
+      'firm issues one — the account login goes on the account itself, not here.',
+    );
+  }
+}
+
 export async function saveApiKey(
   userId: string,
   input: SaveApiKeyInput,
@@ -105,6 +130,7 @@ export async function saveApiKey(
   const sec = input.sec.trim();
   if (!cid) throw new Error('Client ID (cid) is required');
   if (!sec) throw new Error('Client Secret (sec) is required');
+  validateCid(cid);
 
   const r = await query<Row>(
     `INSERT INTO broker_api_keys (user_id, broker, cid, sec, app_id, app_version)
