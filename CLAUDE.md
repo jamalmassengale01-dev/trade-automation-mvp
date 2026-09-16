@@ -86,12 +86,22 @@ proprietary-adjacent, kept with the Pine scripts). Paste an entry condition in,
 run once, read the verdict. Two sigma at several horizons, confirmed on a second
 instrument and a second date range, before anything gets built around it.
 
-**On firm choice, if a strategy ever clears the bar:** the 30-day clock is a
-large, separate penalty. At zero edge a coin flip passes 32.9% on Apex with the
-clock removed and only 7.4% with it, because a driftless process does not
-resolve inside 30 days — 82% of runs simply expire. Phidias at $116 with no
-expiry beats Apex at $109 for anything short of a strong edge, and its unlimited
-$116 resets also make it the better measuring instrument.
+**On firm choice — corrected 16 Sep 2026 after reading the Phidias Terms.**
+
+The clock cuts both ways and an earlier version of this note only described one
+side. At zero edge a coin flip passes 32.9% on Apex with the clock removed and
+7.4% with it, because a driftless process does not resolve inside 30 days.
+
+But Phidias bills **every 30 days** (Terms art. 4.1), not once. $116 buys a
+cycle, not an attempt. At the simulated median of ~31 days to pass, a successful
+attempt costs ~$232; the ~48% of runs that neither pass nor fail keep billing
+until you cancel, and cancellation is irrevocable with no reactivation (art.
+5.3). Apex's 30-day clock is a penalty on the pass rate AND a cap on the cost.
+Phidias has neither.
+
+Neither is clearly better. Apex fails cheap and fast; Phidias gives you more
+time to resolve at an open-ended price. Pick on that trade-off, not on "$116
+versus $109", which is not the comparison.
 
 ---
 
@@ -166,6 +176,23 @@ Max trades per day: 3 (one per session)
 ```
 
 ### Risk Ladder
+
+**⚠ Compliance risk — Phidias Terms art. 6.2 (version 18 May 2026).** The Terms
+prohibit "sudden enrichment" strategies, defined as "concentrating a limited
+number of very high-risk transactions with the aim of quickly generating a
+disproportionate gain at the cost of risking the full depletion of the Account",
+on the stated ground that they "do not reflect coherent risk management".
+
+A ladder that multiplies risk after each loss — 1x, 1x, 2x, 3x, capped at 3 per
+day — is the shape that language describes. Whether a firm would actually invoke
+it against a bounded 3-step ladder inside a daily loss cap is a judgement call,
+and this is a reading of the Terms rather than legal advice. But the **Eval Rush
+variant below ($500 base risk, 31% blown rate) is materially more exposed**, and
+is the first thing to drop if Phidias is the venue.
+
+Ask Phidias in writing before running the ladder there. A written answer costs
+nothing and the downside is termination without refund or payout (art. 6.2).
+
 ```
 Base risk = DLL / 3
   Apex 50K: $1,000 DLL → base risk = $334
@@ -762,8 +789,9 @@ not a status.
 
 ```
 Considered:     Apex 50K EOD Trail 5-pack ($545) — NOT purchased
-Alternative:    ONE Phidias eval ($116, no expiry, unlimited $116 resets) as a
-                measuring instrument before committing to a pack
+Alternative:    ONE Phidias eval. NOT a $116 one-off: billing renews every 30
+                days (Terms art. 4.1) and a failed account resets on renewal.
+                No 30-day pass deadline, but no cost cap either.
 Blocked on:     a measured win rate and TP2 share (see top of file)
 ```
 
@@ -933,11 +961,20 @@ Across Apex, Phidias and TradeDay the consistent line is: **your own strategy,
 supervised = permitted; third-party or purchased bots = prohibited.** Jamal
 running GB LIVE on his own accounts sits on the permitted side at all three.
 Selling it to subscribers who run it on theirs sits on the prohibited side at
-all three. Phidias is the one explicit exception on the execution half — its
-rules state "You may use third-party copy trading software" — but that is
-permission to COPY trades, not to generate them unattended, and the same
-paragraph reserves the right to suspend "identical strategies exceeding the
-maximum allowed capital".
+all three.
+
+**The Phidias "copy trading software" permission is NOT in the Terms in force
+(version 18 May 2026).** That phrase was cited here from an earlier or separate
+document and does not appear in the General Terms. Until it is found in a
+current, citable Phidias document, treat Phidias as UNRESOLVED on automation
+like the others rather than as the known exception. Art. 6.2 prohibits "any
+strategy or system designed to ... obtain an unfair advantage" and says nothing
+explicit either way about automation.
+
+**Art. 6.2 also prohibits sharing account credentials with any third party.** A
+SaaS that stores customer broker credentials and trades on their behalf is
+squarely inside that prohibition. This is independent of the automation question
+and blocks the customer-facing model on its own.
 
 This is a business-model question, not an implementation detail. Resolve it
 before building further on the SaaS assumption.
@@ -998,8 +1035,13 @@ a quiet market.
                                  raises lands in risk_events and is seen only
                                  by someone looking at a dashboard.
 5. Stripe billing              — untouched.
-6. Phidias "Professional Intraday" — may imply professional-tier market data
-                                 fees. Unconfirmed.
+6. Phidias professional data fees — ANSWERED, and worse than assumed. Terms
+                                 art. 4.6: LIVE account holders may be classed
+                                 professional; fees are deducted from the
+                                 trading account monthly, and if the balance
+                                 cannot cover them the account is CLOSED for
+                                 insufficient assets — final, with loss of any
+                                 unwithdrawn profits.
 7. Phidias valid-combination #3 — the firm's own example implies 6 weighted
                                  Fundamental slots against a cap of 5. Ask them.
 ```
