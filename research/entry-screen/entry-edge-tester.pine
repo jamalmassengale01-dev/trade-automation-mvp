@@ -1,0 +1,312 @@
+//@version=6
+// =============================================================================
+// ENTRY EDGE TESTER
+// =============================================================================
+//
+// Answers one question about any entry idea, in one backtest run:
+//
+//     Does it predict direction, or is it a coin flip?
+//
+// WHY THE COIN-FLIP LINE IS THE RIGHT YARDSTICK
+//
+// With a stop at 1R, a driftless random walk touches a target T*R before the
+// stop with probability 1/(1+T). So a 0.5R target hits 66.7% of the time and a
+// 2R target 33.3% — with NO edge whatsoever. A "66% win rate" means nothing
+// until you know the target, and most published win rates are exactly this
+// arithmetic dressed up as skill.
+//
+// Real predictive power shows up as hit rates ABOVE that line. Everything else
+// — exits, position sizing, risk ladders, the software you run it on — only
+// redistributes what the entry produces. None of it manufactures an edge.
+//
+// HOW TO USE IT
+//
+//   1. Replace the entry condition in SECTION 1. Nothing else needs changing.
+//   2. Run it. Read the table.
+//   3. Look at the EDGE column. Two sigma or better, at several horizons, and
+//      you have something worth developing. Anything less is noise.
+//   4. Before believing it: re-run on another instrument and another date
+//      range. An edge that lives on one symbol is a property of that symbol's
+//      history, not of markets.
+//
+// WHAT IT DELIBERATELY DOES NOT DO
+//
+// No take-profit tuning, no ladder, no breakeven, no split exits. Those change
+// what you HARVEST from an edge and cannot create one, and including them lets
+// a losing entry be tuned into a backtest that looks profitable. The position
+// runs to a distant target or the 1R stop, and the only thing measured is how
+// far price travels after the signal.
+//
+// =============================================================================
+
+strategy("Entry Edge Tester", overlay = true,
+     pyramiding              = 0,
+     initial_capital         = 50000,
+     default_qty_type        = strategy.fixed,
+     default_qty_value       = 1,
+     commission_type         = strategy.commission.cash_per_contract,
+     commission_value        = 0.62,
+     slippage                = 1,
+     process_orders_on_close = true,
+     calc_on_every_tick      = false)
+
+// Which idea is loaded. First input in the dialog, and it rides into every entry
+// comment so the trade export identifies itself.
+//
+// Declared here, ABOVE the editable section, so pasting a new idea cannot delete
+// it. Three exports in a row came back as an earlier idea re-run, because a stale
+// copy of this script was left on the chart and nothing on screen distinguished
+// them — same title, same inputs, same legend. The only tell was an MD5 match
+// after the fact, and by then the run had been scored against the wrong idea.
+ideaLabel = input.string("SET ME", "◆ Idea label — appears in the CSV export")
+
+// =============================================================================
+// SECTION 1 — YOUR ENTRY CONDITION.  This is the only part you edit.
+// =============================================================================
+//
+// Set longEntry and shortEntry to whatever you want to test. They are evaluated
+// on bar close. The example below is a plain EMA cross — replace it.
+//
+// DELETE EVERYTHING BETWEEN THE TWO ===== MARKERS and paste the idea in its
+// place. All of it, including any helper variables — nothing outside SECTION 1
+// refers to anything defined in here, so there is nothing left dangling.
+//
+// The only requirement is that your block ends up defining two booleans named
+// longEntry and shortEntry.
+
+// ===== replace from here =====================================================
+emaFast = ta.ema(close, input.int(20, "EMA fast", group = "Your entry"))
+emaSlow = ta.ema(close, input.int(50, "EMA slow", group = "Your entry"))
+
+longEntry  = ta.crossover(emaFast,  emaSlow)
+shortEntry = ta.crossunder(emaFast, emaSlow)
+// ===== to here ===============================================================
+
+// =============================================================================
+// SECTION 2 — MEASUREMENT PROTOCOL.  Leave this alone.
+// =============================================================================
+
+grpM = "Measurement"
+atrLen     = input.int(14,   "ATR length",              group = grpM, minval = 1)
+atrMult    = input.float(1.0,"Stop = N x ATR",          group = grpM, minval = 0.1, step = 0.1)
+minStopPts = input.float(15.0,"Minimum stop (points)",  group = grpM, minval = 0.25, step = 0.25)
+probeR     = input.float(5.0,"Far target (R)",          group = grpM, minval = 4.5, step = 0.5,
+     tooltip = "Must sit beyond the widest horizon measured, or trades close before reaching it.")
+maxBars    = input.int(240,  "Give up after N bars",    group = grpM, minval = 10,
+     tooltip = "A backstop so one trade cannot run for weeks and starve the sample.")
+
+grpW = "When to take signals"
+useWindow = input.bool(false, "Restrict to a time window", group = grpW)
+winStart  = input.session("0930-1600", "Window (NEW YORK time)", group = grpW,
+     tooltip = "Interpreted as America/New_York, not the exchange timezone. " +
+               "CME's exchange timezone is Chicago, so an unqualified session string " +
+               "would have been an hour off.")
+maxPerDay = input.int(3, "Max trades per day", group = grpW, minval = 1)
+// Fire only when the condition FLIPS false->true, not on every bar it stays true.
+//
+// A condition that persists for many bars produces a run of highly correlated
+// entries. They are not independent observations, so the z-scores below treat a
+// cluster as if it were a sample and overstate the evidence. Transition-only
+// triggering is the cheap fix: one observation per episode.
+transitionOnly = input.bool(true, "Trigger only when the signal turns on",
+     group = grpW,
+     tooltip = "Leave ON unless you specifically want every bar the condition holds. " +
+               "Persistent conditions otherwise inflate the sample with correlated trades.")
+
+inWindow = not useWindow or not na(time(timeframe.period, winStart, "America/New_York"))
+newDay   = ta.change(time("D")) != 0
+var int tradesToday = 0
+if newDay
+    tradesToday := 0
+
+// ---- trade state ------------------------------------------------------------
+var float stopPx   = na
+var float targetPx = na
+var float stopDist = na
+var bool  isLong   = false
+var int   barsIn   = 0
+// Stop distance of every trade, in the order they were opened. Trade i in
+// TradingView's closed-trade ledger used array element i, because pyramiding is
+// off and only one position is ever open.
+var float[] tradeStop = array.new_float()
+
+// ---- results ----------------------------------------------------------------
+// Horizons measured. Each is compared against its own 1/(1+T) baseline.
+var HORIZONS = array.from(0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0)
+var hits    = array.new_int(8, 0)
+var int   nTrades  = 0
+var int   counted  = 0
+var float sumCostR = 0.0
+// Slices, for spotting WHERE an effect might live. Treated with suspicion: the
+// more slices you look at, the more likely one looks good by chance.
+var int nLong     = 0
+var int nLongHit1 = 0
+var int nShort    = 0
+var int nShortHit1 = 0
+
+// SECTION 2's private variables carry an m- prefix so a pasted idea cannot
+// collide with them. They used to be plain `atr`, `pos` and `flat` — three of
+// the most obvious names in technical analysis, claimed by a script whose whole
+// purpose is to have arbitrary code pasted into it. An idea that defined its own
+// `atr` failed to compile with "already defined" pointing at THIS line, ninety
+// lines away from the paste that caused it.
+mAtr  = ta.atr(atrLen)
+mPos  = strategy.position_size
+mFlat = mPos == 0
+
+// ---- classify every trade TradingView has closed ----------------------------
+//
+// Read from strategy.closedtrades rather than watching position_size flip to
+// zero and measuring the excursion by hand.
+//
+// The hand-rolled version counted ZERO trades on a run where the Key stats
+// panel counted 1,062. Whatever the precise cause, the lesson generalises: a
+// harness that maintains its own parallel idea of when a trade started and
+// ended can disagree with the platform, and when it does, every number it
+// prints is wrong in a way that looks like a finding. TradingView already
+// tracks entry, exit and maximum favourable excursion per trade. Using its
+// ledger removes the possibility of disagreeing with it.
+//
+// max_runup is currency, so it converts to R with the trade's own stop.
+if strategy.closedtrades > counted
+    for i = counted to strategy.closedtrades - 1
+        qty = math.abs(strategy.closedtrades.size(i))
+        sd  = array.size(tradeStop) > i ? array.get(tradeStop, i) : na
+        if not na(sd) and sd > 0 and qty > 0
+            r = (strategy.closedtrades.max_runup(i) / (syminfo.pointvalue * qty)) / sd
+            nTrades += 1
+            for h = 0 to 7
+                if r >= array.get(HORIZONS, h)
+                    array.set(hits, h, array.get(hits, h) + 1)
+            if strategy.closedtrades.size(i) > 0
+                nLong += 1
+                nLongHit1  += (r >= 1.0 ? 1 : 0)
+            else
+                nShort += 1
+                nShortHit1 += (r >= 1.0 ? 1 : 0)
+            sumCostR += 1.24 / (sd * syminfo.pointvalue)
+    counted := strategy.closedtrades
+
+// ---- entry ------------------------------------------------------------------
+longFire  = transitionOnly ? (longEntry  and not longEntry[1])  : longEntry
+shortFire = transitionOnly ? (shortEntry and not shortEntry[1]) : shortEntry
+
+if mFlat and inWindow and tradesToday < maxPerDay and barstate.isconfirmed and (longFire or shortFire)
+    isLong   := longFire
+    stopDist := math.max(mAtr * atrMult, minStopPts)
+    stopPx   := math.round_to_mintick(close - (isLong ? 1 : -1) * stopDist)
+    targetPx := math.round_to_mintick(close + (isLong ? 1 : -1) * stopDist * probeR)
+    barsIn   := 0
+    tradesToday += 1
+    array.push(tradeStop, stopDist)
+    // The stop distance rides along in the comment so it reaches the exported
+    // trade list. Run-up in the export is currency; without the stop that
+    // produced it there is no way to turn it into an R multiple afterwards.
+    strategy.entry(isLong ? "L" : "S", isLong ? strategy.long : strategy.short,
+         comment = ideaLabel + " sd=" + str.tostring(stopDist, "#.##"))
+
+// ---- exits: the stop, the far target, and one backstop ----------------------
+//
+// Placed unconditionally rather than under `if mPos > 0`. position_size still
+// reads zero on the bar the entry is submitted — the fill happens at that
+// bar's close — so a guarded exit was not attached until the bar AFTER entry,
+// leaving one bar in which the position had no stop at all.
+if not na(stopPx)
+    strategy.exit("xL", from_entry = "L", stop = stopPx, limit = targetPx)
+    strategy.exit("xS", from_entry = "S", stop = stopPx, limit = targetPx)
+
+if not mFlat
+    barsIn += 1
+    if barsIn >= maxBars
+        strategy.close_all(comment = "time stop")
+
+// Nothing here may reference anything from SECTION 1. Those identifiers are
+// deleted every time you paste in a new idea, and a plot left pointing at one
+// fails to compile with "Undeclared identifier" — 120 lines away from the edit
+// that caused it, which reads as a broken tester rather than a dangling plot.
+bgcolor(useWindow and inWindow ? color.new(color.blue, 92) : na)
+plotchar(strategy.position_size != 0, "in trade", "", location.bottom,
+     color.new(color.gray, 70), size = size.tiny)
+
+// =============================================================================
+// SECTION 3 — THE ANSWER
+// =============================================================================
+
+var table t = table.new(position.top_right, 5, 14, border_width = 1,
+     frame_color = color.gray, frame_width = 1, bgcolor = color.new(color.black, 10))
+
+cell(c, r, txt, tint) =>
+    table.cell(t, c, r, txt, text_color = tint, text_size = size.small,
+         text_halign = c == 0 ? text.align_left : text.align_right)
+
+if barstate.islast
+    N = nTrades
+    cell(0, 0, "ENTRY EDGE TEST", color.orange)
+    cell(1, 0, str.tostring(N) + " trades", N < 100 ? color.orange : color.white)
+    // DEEP BACKTESTING MAKES THIS TABLE BLIND.
+    //
+    // Deep Backtesting runs the strategy over a separate extended-history feed.
+    // The script instance drawing this table runs on the ordinary chart feed,
+    // which at 5-minute resolution holds only weeks of bars — so when the
+    // backtest range sits further back than that, no bar on THIS feed falls
+    // inside it, no trade is taken here, and the table honestly reports zero
+    // while Key stats reports thousands. Nothing is broken; the two runs simply
+    // cannot see each other.
+    //
+    // So the table is only trustworthy when the range lies inside the chart's
+    // own loaded history. For anything longer, export the trade list and read
+    // Run-up against the sd= in each entry comment.
+    if N == 0
+        cell(2, 0, "0 trades HERE. With Deep Backtesting on, use the " +
+             "List of Trades export - this table cannot see that run.",
+             color.orange)
+    else if N != strategy.closedtrades
+        cell(2, 0, "MISMATCH: Strategy Tester says " +
+             str.tostring(strategy.closedtrades) + " - do not trust this table",
+             color.red)
+
+    cell(0, 1, "target",    color.silver)
+    cell(1, 1, "coin flip", color.silver)
+    cell(2, 1, "measured",  color.silver)
+    cell(3, 1, "edge",      color.silver)
+    cell(4, 1, "EV/trade",  color.silver)
+
+    avgCost = N > 0 ? sumCostR / N : 0.0
+    beaten  = 0
+    for i = 0 to 7
+        T   = array.get(HORIZONS, i)
+        rw  = 1.0 / (1.0 + T)
+        got = N > 0 ? array.get(hits, i) / float(N) : float(na)
+        se  = math.sqrt(rw * (1 - rw) / math.max(N, 1))
+        z   = na(got) ? float(na) : (got - rw) / se
+        ev  = na(got) ? float(na) : got * T - (1 - got) * 1.0 - avgCost
+        // Two sigma is the bar. Below it, a positive number is not a finding.
+        strong = not na(z) and z >= 2.0
+        beaten += strong ? 1 : 0
+        c = strong ? color.lime : (not na(z) and z > 0 ? color.new(color.lime, 55) : color.gray)
+        cell(0, i + 2, str.tostring(T, "#.##") + "R", color.white)
+        cell(1, i + 2, str.tostring(rw * 100, "#.#") + "%", color.gray)
+        cell(2, i + 2, na(got) ? "-" : str.tostring(got * 100, "#.#") + "%", color.white)
+        cell(3, i + 2, na(z) ? "-" : str.tostring(z, "+#.##") + "s", c)
+        cell(4, i + 2, na(ev) ? "-" : str.tostring(ev, "+#.###") + "R",
+             not na(ev) and ev > 0 ? color.lime : color.gray)
+
+    verdict = N < 100 ? "NEED MORE TRADES" : beaten > 0 ? "EDGE at " + str.tostring(beaten) + " horizon(s)" : "NO EDGE"
+    vcolor  = N < 100 ? color.orange : beaten > 0 ? color.lime : color.red
+    cell(0, 10, "VERDICT", color.silver)
+    cell(1, 10, verdict, vcolor)
+
+    cell(0, 11, N < 100 ? "under 100 trades the interval" : "2 sigma is the bar.", color.gray)
+    cell(1, 11, N < 100 ? "is wider than any edge" : "below it, a positive", color.gray)
+    cell(2, 11, N < 100 ? "you would act on." : "number is noise.", color.gray)
+
+    // Slices last, and greyed, because they invite exactly the mistake this
+    // script exists to prevent: finding the one cut that looks good.
+    lr = nLong  > 0 ? nLongHit1  / float(nLong)  : float(na)
+    sr = nShort > 0 ? nShortHit1 / float(nShort) : float(na)
+    cell(0, 12, "at 1R:  long", color.gray)
+    cell(1, 12, na(lr) ? "-" : str.tostring(lr * 100, "#.#") + "% of " + str.tostring(nLong), color.gray)
+    cell(2, 12, "short", color.gray)
+    cell(3, 12, na(sr) ? "-" : str.tostring(sr * 100, "#.#") + "% of " + str.tostring(nShort), color.gray)
+    cell(4, 12, "(coin flip 50%)", color.gray)
+    cell(0, 13, "slices are for hypotheses, not conclusions - retest on other symbols", color.gray)
