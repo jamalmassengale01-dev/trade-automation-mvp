@@ -21,42 +21,77 @@ executes it.
 
 ---
 
-## ⚠ READ THIS BEFORE USING ANY NUMBER IN THIS FILE
+## ⚠ MEASURED, 16 September 2026: GB LIVE HAS NO EDGE
 
-**The strategy has no live track record.** As of 8 September 2026 the founder has
-not traded GB LIVE — no live evaluation, no funded account, no recorded fills.
-Earlier versions of this file described it as "battle-tested on live Apex eval
-accounts since June 2026" and referred to a founder's fleet as a live proof of
-concept. That was not accurate and has been removed.
+The two numbers this file spent a year calling "unmeasured" have now been
+measured, and the answer is negative. Read this before building on anything
+below it.
 
-What follows from that:
+**How it was measured.** An excursion probe: whole position, 1R stop, a distant
+5R target, no split, no breakeven — so the only thing recorded is how far price
+travels after a signal. The yardstick is arithmetic, not opinion: with a 1R
+stop, a driftless random walk touches a target of T×R before stopping with
+probability **1/(1+T)**. A 0.5R target therefore hits 66.7% of the time with no
+edge whatsoever. Predictive power shows up as hit rates ABOVE that line.
 
-- **Every performance figure here is a projection from assumptions, not a
-  measurement.** The 85.5% pass rate, the 60% win rate, the ~$3,807/month per
-  account and all fleet totals derive from a Monte Carlo whose inputs have never
-  been checked against a filled order.
-- **The 85.5% figure does not reproduce.** `npm run eval:sim` runs a Monte Carlo
-  over the real ladder, drawdown and gate code. Reaching 85.5% requires a win
-  rate above 65% AND essentially every winning trade running the full 2R to TP2.
-  At a 60% win rate with 70% of winners reaching TP2 — already generous — the
-  pass rate is ~43%. Treat 85.5% as unreachable until measured otherwise.
-- **Two numbers are needed and neither exists yet:** the share of trades that
-  reach TP1 (the win rate), and of those, the share that reach TP2 rather than
-  stopping the runner at breakeven. The second matters as much as the first —
-  it moves the pass rate from 14% to 43% at a fixed 60% win rate — and has never
-  been tracked.
-- **Do not use any figure here in customer-facing material.** Not at 50%, not
-  with a disclaimer. There is nothing behind them yet.
+**What it found, at the 0.5R horizon (coin flip = 66.7%):**
 
-None of this affects the software. The ladder, drawdown floor, gates, prop-firm
-math and reconciliation are tested and correct independently of whether the
-strategy has an edge — that is what they are for.
+```
+2-min, filtered setups      58.1%    -8.6 pts
+2-min, bare reclaim allowed 62.9%    -3.8 pts
+5-min, full year            65.3%    -1.4 pts
+```
 
-**Cheapest path to real numbers, in order:** TradingView Strategy Tester on the
-GB LIVE script (free, treat as a ceiling — backtests flatter themselves on fills
-and intrabar ordering), then ONE evaluation rather than a five-pack. A Phidias
-eval at $116 has no expiry clock and unlimited $116 resets, which makes it a
-better instrument for measuring than an Apex eval with a 30-day deadline.
+Below the line at every horizon from 0.25R to 4R on 2-minute. On 5-minute the
+entries sit almost exactly ON the line — no negative drift, but no prediction
+either. Largest deviation anywhere: 0.86 sigma.
+
+**Cross-instrument, 3 years, London window, ~710 trades.** For a 5R/1R probe a
+coin flip produces a profit factor of exactly 1.000:
+
+```
+MYM (Dow)      PF 0.674     -0.326 vs coin flip
+MES (S&P)      PF 0.707     -0.293
+MNQ (Nasdaq)   PF 1.056     +0.056
+```
+
+Two of three well below a coin flip; the third marginally above. An edge in
+London liquidity behaviour would appear on correlated index futures. It does
+not. **The MNQ result did not replicate and was noise.**
+
+**What follows:**
+
+- **No exit structure fixes this.** 13 target/split combinations were tested on
+  the clean data; the best was +0.008R with a confidence interval straddling
+  zero. Exits redistribute an edge, they cannot create one.
+- **Beware configurations that end profitable.** Several were found by searching
+  settings. Each reached its profit through a drawdown of $6,000-$14,000 against
+  a $2,000 Apex limit — dead accounts with a positive final number.
+- **The old 85.5% pass rate was never real.** Nor were the 60% win rate, the
+  ~$3,807/month/account, or any fleet total derived from them.
+
+**The software is unaffected and strategy-agnostic.** The ladder, drawdown
+floor, DLL gates, prop-firm math and reconciliation never assumed GB LIVE. They
+amplify an edge — `eval:sim` says a -1.4-point strategy still passes ~62% of the
+time — but they cannot substitute for one: a literal coin flip passes 7.4% on
+Apex's 30-day clock, 5.0% after commissions.
+
+**The bar to aim at.** Roughly **+3 points above the coin-flip line** at 0.5R
+(≈70% win rate) gives a ~80% Apex pass rate. That is the target for any
+replacement strategy, and it is a much lower bar than the numbers this file used
+to claim.
+
+**How to test the next idea:** `entry-edge-tester.pine` (not in this repo —
+proprietary-adjacent, kept with the Pine scripts). Paste an entry condition in,
+run once, read the verdict. Two sigma at several horizons, confirmed on a second
+instrument and a second date range, before anything gets built around it.
+
+**On firm choice, if a strategy ever clears the bar:** the 30-day clock is a
+large, separate penalty. At zero edge a coin flip passes 32.9% on Apex with the
+clock removed and only 7.4% with it, because a driftless process does not
+resolve inside 30 days — 82% of runs simply expire. Phidias at $116 with no
+expiry beats Apex at $109 for anything short of a strong edge, and its unlimited
+$116 resets also make it the better measuring instrument.
 
 ---
 
@@ -117,8 +152,13 @@ Setup detection (two entry types):
 
 Sessions (EARLY 30-min mode — signals only within these windows):
   London:  3:00–3:30 AM ET
-  NY AM:   10:00–10:30 AM ET  ← highest probability
+  NY AM:   10:00–10:30 AM ET
   NY PM:   2:00–2:30 PM ET
+
+No session is known to be higher-probability than another. This file used to
+mark NY AM as the best; nothing measured supports that. A 121-trade slice put
+London 9 points above the coin-flip line, but it failed to replicate on ES and
+YM over 3 years, so treat all three windows as unranked.
 
 Signal fires: on bar CLOSE only (not intrabar)
 Max trades per session: 1
@@ -381,10 +421,10 @@ base_risk:      334    (DLL/3)
 max_contracts:  60     (micros, eval limit)
 dd_mode:        eod_trailing
 cap_step:       3
-pass_rate:      UNMEASURED — see the warning at the top of this file.
-                85.5% was an assumption, and npm run eval:sim does not
-                reproduce it. ~43% at a 60% win rate with 70% of winners
-                reaching TP2.
+pass_rate:      MEASURED — GB LIVE has no edge (see the top of this file).
+                At the measured 5-min figures the pass rate is ~62%, but that
+                sits on a strategy that does not beat a coin flip, so it is
+                not a forecast of anything. 85.5% was always an assumption.
 avg_days_pass:  ~14 trading days (p50) under those same assumptions
 ```
 
@@ -948,7 +988,8 @@ a quiet market.
 ### Open questions — unresolved, listed so they are not rediscovered
 
 ```
-1. Win rate and TP2 share      — unmeasured. Blocks every projection.
+1. Win rate and TP2 share      — MEASURED 16 Sep 2026. No edge; see the top of
+                                 this file. Question is now "what replaces it".
 2. Automation policy           — see the compliance section. Blocks the SaaS
                                  business model, not the personal use case.
 3. Tradovate credentials       — none yet. $1,000 + $25/mo add-on required.
@@ -966,5 +1007,6 @@ a quiet market.
 ---
 
 *EdgePilot | GB LIVE v5 | Built by Jamal*
-*Last corrected: 9 September 2026 — performance claims removed as unmeasured.*
+*Last corrected: 16 September 2026 — edge measured across 2 timeframes,
+3 instruments and 3 years. Result: none. See the warning at the top.*
 *This file is the single source of truth for Claude Code sessions on this project.*
