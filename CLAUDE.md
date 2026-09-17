@@ -135,6 +135,28 @@ all ideas at once — testing nine ideas on two timeframes raises the bar from 2
 to 2.8, and picking the timeframe after seeing the result is the same error as
 picking the date range after seeing it.
 
+## ⚠ 17 September 2026: APEX MAY PROHIBIT AUTOMATION WHERE THE MONEY IS
+
+Researched after the Tradovate API path closed. **Not first-hand verified** — from
+search summaries of Apex support pages that could not be opened directly. Verify
+before building on it, and ask Apex in writing.
+
+Apex's support pages state that **fully automated trading is prohibited on PA and
+Live accounts, while bots and auto-strategies ARE permitted during evaluations.**
+Violation means immediate closure and forfeiture of all funds and balances.
+
+Under the fleet model the evaluation costs $109 and the PA holds the entire
+$13,000. **Automation is permitted exactly where there is no money and prohibited
+exactly where there is.** That is a business-model problem, not an engineering
+one; nothing in this repository changes it.
+
+If it holds, the options are: automate Apex evaluations and trade the PA by hand;
+move to a firm permitting automation at the funded stage (Topstep's Express Funded
+Account does, and they sell a documented API); or drop the automation premise.
+
+Detail, and the survey of every other way to reach a prop account, in
+*"How other platforms reach prop accounts"* further down.
+
 **On firm choice — corrected 16 Sep 2026 after reading the Phidias Terms.**
 
 The clock cuts both ways and an earlier version of this note only described one
@@ -990,32 +1012,113 @@ trade-automation-mvp/
 └── docker/docker-compose.yml          ← postgres + redis
 ```
 
-### Tradovate API access — real prerequisites
+### Tradovate API access — prop accounts are excluded, not merely expensive
 
-Getting an API key is not free and not instant. Per Tradovate/NinjaTrader docs:
-an **active API Access add-on (~$25/mo)** AND a **live funded account with a
-$1,000 minimum balance**. A brand-new personal Tradovate application shows "No
-API keys found" until both are satisfied.
+**Corrected 17 Sep 2026.** This section used to frame the API key as a cost
+barrier. It is not one; it is a wall.
 
-A personal Tradovate account is ALSO not the account that trades a prop firm
-fleet — prop accounts are provisioned under credentials the firm issues.
-`npm run tradovate:preflight` detects this case explicitly: authenticated but
-zero accounts means the login owns nothing tradable.
+Individual API credentials need an **API Access add-on (~$25/mo)** AND a **live
+funded account with a $1,000 minimum**. But that is not the binding constraint:
+**normal account-holder API credentials have no documented path to prop firm or
+evaluation accounts at all.** Authorized integrations reach them through a
+separate partner entitlement — NinjaTrader's Partner API, which requires
+Organization Admin credentials and a business-development approval process, and
+is described as an institutional API for brokers and prop firms rather than for
+individual traders.
 
-### Prop firm automation policy — UNRESOLVED, affects the business model
+So `tradovateBroker.ts` cannot trade an Apex or Phidias account no matter what is
+paid. `npm run tradovate:preflight` detects the symptom — authenticated but zero
+accounts means the login owns nothing tradable.
 
-Apex's Prohibited Activities page describes automation as prohibited on all
-account types, including "pre-configured bots, scripts, or strategies that
-place, modify, or cancel orders based on preset conditions, signals, or market
-events". Vendor sites selling webhook bridges describe the same rules as
-permitting supervised semi-automation. The vendor has a commercial interest in
-that reading; verify against the firm's own page, not a review site.
+**Confidence.** High that individual API access does not reach prop accounts;
+medium that this is immutable policy rather than current practice, because the
+exact first-party 2026 wording was not read directly. State it as "no documented
+path for individual credentials", not "universally banned".
 
-Across Apex, Phidias and TradeDay the consistent line is: **your own strategy,
-supervised = permitted; third-party or purchased bots = prohibited.** Jamal
-running GB LIVE on his own accounts sits on the permitted side at all three.
-Selling it to subscribers who run it on theirs sits on the prohibited side at
-all three.
+### How other platforms reach prop accounts
+
+Researched 17 Sep 2026, after the finding above closed the direct path.
+
+**PickMyTrade is one-way.** An authorized Tradovate vendor, so it CAN place orders
+on prop accounts — the user supplies a Tradovate username and password, PMT
+supplies the partner credentials. But no documented customer-facing REST endpoint
+or outbound fill callback was found. It knows the execution outcome and does not
+expose it. Its trade log does export to CSV from the dashboard.
+
+**TradersPost** has a unified broker API, but as of its own December 2025 update
+the account-data/positions/balances API was not publicly launched.
+
+**Signal Trade App** (`signaltradeapp.com/api-docs`) documents the readback this
+architecture needs: `GET /v1/accounts`, `/positions`, `/orders` (executed
+history), persistent broker WebSockets, read-only-scoped keys, and webhook
+notifications on fills. ~$15/mo. Unverified in production, and it would hold
+broker credentials — which Phidias art. 6.2 prohibits sharing with a third party.
+
+**NinjaTrader Desktop as a read-only listener.** The strongest option needing no
+new vendor. NinjaTrader accepts Tradovate/prop credentials, and NinjaScript AddOns
+subscribe to `ExecutionUpdate`, `AccountItemUpdate` (exposing
+`AccountItem.RealizedProfitLoss`), `OrderUpdate` and `PositionUpdate`. Critically,
+`OnAccountItemUpdate()` reports for the whole account and is **not limited to the
+executions of your own strategy** — so it sees fills PickMyTrade placed. A
+read-only AddOn forwarding to localhost closes the feedback loop with no API key,
+no scraping, and no third party holding credentials.
+
+Its real cost: a **Windows machine running NinjaTrader continuously**, including
+for the 03:00 ET London window. A second always-on dependency beside the Docker
+stack, on a box that cannot be the same VPS.
+
+**Topstep / ProjectX — the sideways move.** Topstep sells ordinary traders
+documented API access — REST + WebSocket, order placement AND account reads,
+multiple accounts per key — at $29/mo, $14.50 for their own traders. Automation is
+permitted on the Trading Combine and the **Express Funded Account**, prohibited
+only on the Live Funded Account. ProjectX wound down its third-party offering with
+partner support ending 28 Feb 2026, so this is effectively Topstep-only.
+
+That combination is unique among the options surveyed: the data problem disappears
+AND automation is permitted at the funded stage. Rule shape for comparison: MLL
+trails on end-of-day balance and locks at starting balance; $2K/$3K/$4.5K on
+50K/100K/150K; Combine consistency 55%; XFA Standard is five $150+ winning days,
+XFA Consistency three days at ≤40%; Combine $49/$99/$199.
+
+**Tradovate statements.** Nightly statements are emailed, and daily/monthly
+statements are retrievable from the Statements report with CSV export.
+Programmatic CSV generation exists but is explicitly for organization admins, so
+prop credentials should not be assumed to reach it. No supported customer endpoint
+for automated Apex/Phidias statement download was found — do not browser-scrape an
+undocumented one and call it an API.
+
+### Prop firm automation policy — the eval/PA split changes the business case
+
+**Corrected 17 Sep 2026.** This section previously concluded "your own strategy,
+supervised = permitted", which put personal use on the safe side at all three
+firms. That is too generous for Apex.
+
+Apex's support pages state that **fully automated trading is prohibited on PA and
+Live accounts, while bots and auto-strategies ARE permitted during evaluations.**
+Violation means immediate closure of the PA or Live account and forfeiture of all
+funds and balances. Any hands-off, set-and-forget or 24-hour continuous system is
+named explicitly. Trade copiers do not waive the rule on follower accounts.
+
+The consequence is structural, not technical. Under the fleet model the
+evaluation costs $109 and the PA holds the entire $13,000. **Automation is
+permitted exactly where there is no money and prohibited exactly where there is.**
+
+This is not the SaaS question. It applies to the founder's own accounts, and no
+amount of engineering changes it. If it holds, the options are: automate Apex
+evaluations and trade the PA by hand; move to a firm permitting automation at the
+funded stage; or drop the automation premise.
+
+**Not first-hand verified.** Sourced from search summaries of Apex support pages
+that could not be opened directly. Read it first-hand and ask Apex in writing
+before building on either reading.
+
+**Topstep is the contrast worth knowing.** Automation is permitted on the Combine
+AND the Express Funded Account, prohibited only on Live Funded — and they sell a
+documented API to do it with. See the section above.
+
+Vendor sites selling webhook bridges describe these rules as permitting supervised
+semi-automation. The vendor has a commercial interest in that reading; verify
+against the firm's own page, not a review site.
 
 **The Phidias "copy trading software" permission is NOT in the Terms in force
 (version 18 May 2026).** That phrase was cited here from an earlier or separate
@@ -1084,10 +1187,19 @@ a quiet market.
                                  answer on 17 Sep: nine screened ideas, no
                                  survivor. research/entry-screen/RESULTS.md.
                                  Still open, but those nine are closed.
-2. Automation policy           — see the compliance section. Blocks the SaaS
-                                 business model, not the personal use case.
-3. Tradovate credentials       — none yet. $1,000 + $25/mo add-on required.
-                                 Nothing here has ever placed a real order.
+2. Automation policy           — SHARPENED 17 Sep 2026, and worse than recorded.
+                                 Apex permits automation on EVALUATIONS and
+                                 prohibits it on PA/Live — the stage holding the
+                                 $13,000. Blocks personal use, not just SaaS.
+                                 Verify first-hand; ask Apex in writing.
+                                 Topstep permits it on Combine + Express Funded.
+3. Tradovate credentials       — CLOSED 17 Sep 2026. Individual API credentials
+                                 have no documented path to prop accounts; the
+                                 $1,000 + $25/mo would have bought nothing.
+                                 Reaching them needs a partner entitlement, a
+                                 vendor bridge, a local NinjaTrader listener, or
+                                 a different firm. Nothing here has ever placed
+                                 a real order.
 4. Notifications               — no channel exists. Every alert this system
                                  raises lands in risk_events and is seen only
                                  by someone looking at a dashboard.
@@ -1101,12 +1213,20 @@ a quiet market.
                                  unwithdrawn profits.
 7. Phidias valid-combination #3 — the firm's own example implies 6 weighted
                                  Fundamental slots against a cap of 5. Ask them.
+8. Fills feedback path         — NEW 17 Sep 2026. PickMyTrade places orders and
+                                 returns nothing, so account_daily_pnl has no
+                                 automated writer under a relay design. Options,
+                                 best first: local read-only NinjaTrader AddOn;
+                                 Topstep/ProjectX API; Signal Trade App; manual
+                                 statement import.
 ```
 
 ---
 
 *EdgePilot | GB LIVE v5 | Built by Jamal*
-*Last corrected: 17 September 2026 — GB LIVE measured across 2 timeframes,
-3 instruments and 3 years: no edge. First replacement search, nine ideas: no
-survivor. Both warnings are at the top; the holdout is still sealed.*
+*Last corrected: 17 September 2026 — GB LIVE measured: no edge. First
+replacement search, nine ideas: no survivor. Execution path researched: the
+Tradovate individual API cannot reach prop accounts, and Apex permits automation
+on evals but not on PAs. All warnings are at the top; the holdout is still
+sealed.*
 *This file is the single source of truth for Claude Code sessions on this project.*
