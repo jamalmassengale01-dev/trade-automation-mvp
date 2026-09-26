@@ -1,6 +1,11 @@
 # Compliance questions to the prop firms
 
-Two letters, drafted 17 September 2026. **Neither has been sent.**
+Two letters, drafted 17 September 2026. **Both sent 26 September 2026. Awaiting
+replies.**
+
+When a reply arrives, paste it below the relevant letter with the date received.
+The point of asking in writing was to have something dated to keep — that only
+works if the answer is filed rather than read and closed.
 
 They exist because two things this project depends on are recorded in `CLAUDE.md`
 as *not first-hand verified* — the network blocked every Apex and Tradovate
