@@ -26,7 +26,8 @@
     "docker:up": "docker-compose -f docker/docker-compose.yml up -d",
     "docker:down": "docker-compose -f docker/docker-compose.yml down",
     "docker:build": "docker-compose -f docker/docker-compose.yml build",
-    "docker:logs": "docker-compose -f docker/docker-compose.yml logs -f"
+    "docker:logs": "docker-compose -f docker/docker-compose.yml logs -f",
+    "fleet:sim": "npm run fleet:sim --workspace=@trade-automation/api --"
   },
   "devDependencies": {
     "npm-run-all": "^4.1.5"
