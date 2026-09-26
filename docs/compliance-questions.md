@@ -1,20 +1,23 @@
 # Compliance questions to the prop firms
 
-Two letters, drafted 17 September 2026. **Both sent 26 September 2026. Awaiting
-replies.**
+| firm | drafted | sent | reply |
+|---|---|---|---|
+| Apex Trader Funding | 17 Sep 2026 | 26 Sep 2026 | awaiting |
+| Phidias | 17 Sep 2026 | 26 Sep 2026 | awaiting |
+| DayTraders.com | 26 Sep 2026 | — | — |
 
 When a reply arrives, paste it below the relevant letter with the date received.
 The point of asking in writing was to have something dated to keep — that only
 works if the answer is filed rather than read and closed.
 
-They exist because two things this project depends on are recorded in `CLAUDE.md`
-as *not first-hand verified* — the network blocked every Apex and Tradovate
-support page during research, so both findings rest on search summaries. A dated
-written answer from the firm is worth more than any page that can be screenshotted,
-and both firms' published pages have already contradicted each other across
-sources.
+These exist because several things this project depends on are recorded in
+`CLAUDE.md` as *not first-hand verified* — the network blocked every Apex,
+Tradovate and DayTraders support page during research, so those findings rest on
+search summaries. A dated written answer from the firm is worth more than any
+page that can be screenshotted, and the firms' published pages have already
+contradicted each other across sources.
 
-**No accounts are held at either firm.** Asking before buying costs nothing;
+**No accounts are held at any of them.** Asking before buying costs nothing;
 asking while holding a funded account is a different calculation. That advantage
 disappears the day an evaluation is purchased.
 
@@ -153,6 +156,90 @@ currently unknown.
 
 ---
 
+## 3. DayTraders.com
+
+**To:** DayTraders help desk (`help.daytraders.com`)
+**Subject:** Automation and API questions before purchasing a 50K EOD evaluation
+
+Context: unlike the other two, this firm's published pricing page was read
+first-hand — $105 + $5 activation, $2,000 EOD trailing drawdown, $1,250 daily
+loss limit, $3,000 target, 10 contracts / 100 micros, 2 qualifying days minimum,
+$200 qualifying day, 50% eval / 30% Pro consistency, max 5 EOD accounts, $2,000
+max per payout request, Rithmic platform with ArcTrader coming.
+
+The questions below are the things that page does **not** answer.
+
+> Hello,
+>
+> I am considering a 50K EOD evaluation and have read your pricing page and help
+> centre. Four questions the published rules do not settle, and two product
+> questions.
+>
+> My intended approach: an indicator I wrote myself generates signals on MNQ
+> during three fixed 30-minute windows, a maximum of three trades per day on
+> 5-minute bars. Orders are placed automatically, each with a stop loss and take
+> profit set at entry, and I monitor the sessions while they are active.
+>
+> **1. Automation and the HFT rule.** Your help centre prohibits automated
+> high-frequency trading — systems exploiting price discrepancies in milliseconds
+> or microseconds, and excessive trade volume over short periods. Three trades a
+> day on 5-minute bars is a long way from that description, but I would rather
+> confirm than assume. Is ordinary automated execution of a trader's own strategy
+> permitted, and does the answer differ between **evaluation** accounts and
+> **Pro / funded** accounts?
+>
+> **2. Rithmic API access.** Can an account holder obtain Rithmic `R|API+`
+> credentials for a DayTraders account? If so, how are they requested, what does
+> it cost, and does the access include **execution and order reports** — that is,
+> can I read my own fills and realised P&L programmatically, not only place
+> orders?
+>
+> **3. Third-party execution bridges.** Is connecting a commercial bridge such as
+> PickMyTrade permitted? Doing so requires giving that service my platform login,
+> so I would also like to know whether that conflicts with any rule about keeping
+> credentials confidential, and whether specific bridges are approved.
+>
+> **4. Position sizing between trades.** My approach varies size after a losing
+> trade — the next position may be larger, capped at three steps, and always
+> bounded by the daily loss limit so the maximum single-day loss is unchanged.
+> Does a bounded progression of that kind fall foul of any rule?
+>
+> **5. Account limits.** The 50K EOD page shows a maximum of 5 EOD accounts. Is
+> that five in total, or five per drawdown type — could I hold 5 EOD plus 5 Trail
+> plus 5 Static concurrently?
+>
+> **6. Two details the page does not state.** Is there a time limit on an
+> evaluation, and how is the consistency rule computed — as a share of profit
+> since the last payout, or across the life of the account?
+>
+> Thank you,
+> Jamal Massengale
+
+**Why this firm is worth asking.** It is the only one surveyed where the
+published automation rule targets **HFT specifically** rather than automation
+generally, and where the platform (Rithmic) has an API that reports executions.
+If questions 1 and 2 both come back favourably, DayTraders solves the two
+problems that stopped the Apex/Phidias path at once — legality at the funded
+stage, and a fills feedback channel — with no bridge, no statement import and no
+NinjaTrader listener.
+
+**What to watch in the reply.** The "no restrictions on bots" claim circulating
+about this firm comes from affiliate review sites, not from DayTraders. Their own
+help centre says HFT is prohibited, which is not the same statement. Treat
+question 1's answer as the only authority.
+
+**One number that is not the advantage it looks like.** The $1,250 daily loss
+limit is larger than Apex's $1,000, but total drawdown is the same $2,000. Apex
+gives two maximum-loss days before the account is dead; this gives **1.6**. A
+bigger DLL against an unchanged drawdown protects you less, and it pushes base
+risk from $334 to $417 if sized at DLL/3.
+
+**And the 30% Pro consistency rule is the tightest of any firm surveyed** — no
+single day above 30% of profit since the last payout. On three trades a day that
+is genuinely binding.
+
+---
+
 ## What the answers decide
 
 | Answer | Consequence |
@@ -162,3 +249,6 @@ currently unknown.
 | Phidias prohibits bridges (art. 6.2 credentials) | PickMyTrade is out at Phidias regardless of the automation answer. |
 | Phidias permits API access to CASH | Removes the fills-feedback problem there entirely — see open question 8. |
 | Either firm confirms a data fee on CASH | Direct cost against the account, with closure as the failure mode. |
+| DayTraders permits automation on Pro accounts | The Apex eval/PA split stops being the binding constraint — a venue exists where the funded stage can be automated. |
+| DayTraders offers Rithmic API with execution reports | Open question 8 closes. No bridge, no statement import, no NinjaTrader listener — the relay plan collapses to a much simpler direct integration. |
+| Both of the above | DayTraders becomes the default venue and the architecture plan needs rewriting around Rithmic rather than PickMyTrade. |
