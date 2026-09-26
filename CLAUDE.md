@@ -190,16 +190,43 @@ The clock cuts both ways and an earlier version of this note only described one
 side. At zero edge a coin flip passes 32.9% on Apex with the clock removed and
 7.4% with it, because a driftless process does not resolve inside 30 days.
 
-But Phidias bills **every 30 days** (Terms art. 4.1), not once. $116 buys a
-cycle, not an attempt. At the simulated median of ~31 days to pass, a successful
-attempt costs ~$232; the ~48% of runs that neither pass nor fail keep billing
-until you cancel, and cancellation is irrevocable with no reactivation (art.
-5.3). Apex's 30-day clock is a penalty on the pass rate AND a cap on the cost.
-Phidias has neither.
+**Corrected again 26 Sep 2026, from Phidias' own pricing page.** The paragraph
+that stood here said Phidias bills every 30 days (Terms art. 4.1) and therefore
+carried an open-ended cost. That describes their MONTHLY option. There is also a
+**one-time payment** — "One payment. Zero fees after." — with the activation fee
+included, and that is what was purchased.
 
-Neither is clearly better. Apex fails cheap and fast; Phidias gives you more
-time to resolve at an open-ended price. Pick on that trade-off, not on "$116
-versus $109", which is not the comparison.
+So the cost comparison the Terms analysis produced was wrong, and wrong in
+Phidias' favour:
+
+```
+                        Phidias 50K Premium      Apex 50K EOD
+price                   $144.60 one-time         $109 + activation
+recurring cost          none                     none
+reset                   $144.60                  buy a new eval
+expiry clock            NONE                     30 days
+drawdown                $2,500 EOD trailing      $2,000 EOD trailing
+target                  $4,000                   $3,000
+target : drawdown       1.6 : 1                  1.5 : 1
+daily loss limit        none from the firm       $1,000
+max size                100 micros               60 eval / 40 PA
+overnight + weekend     allowed                  no
+```
+
+**The absence of an expiry clock is the consequential difference, and it cuts
+against the ladder.** The measurement recorded below found the ladder favourable
+only under a clock. Without one it costs pass rate at every edge level, and most
+at the edge worth trading:
+
+```
+              30-day clock    no clock
+EV -0.01R        +1.9pp        -3.4pp
+EV +0.22R        +2.4pp       -21.6pp
+EV +0.42R        -5.2pp       -17.8pp
+```
+
+The ladder is a kept decision. This is recorded so the venue's contribution to
+its cost is visible, not to reopen it.
 
 ---
 
@@ -958,23 +985,33 @@ $76k as "MC-verified". They were not verified against anything. Removed.
 
 ---
 
-### Founder's Fleet — does not exist yet
-
-There is no live fleet. No evaluation is running, no funded account exists, and
-nothing has been traded since before June 2026. Anything in this repository
-that reads as though a live reference implementation exists is wrong.
-
-The intent remains to run the founder's own accounts first, and everything
-built should work there before it is offered to anyone else. That is a plan,
-not a status.
+### Founder's Fleet — one account, 26 September 2026
 
 ```
+Held:           1x Phidias 50K Premium evaluation, $144.60 one-time, $0 activation
+Platform:       Tradovate (Rithmic and DeepCharts also offered)
+Preset:         phidias_prem_50k_eval -> phidias_prem_50k_cash, already seeded
+                in schema_gblive_v12/v13 and matching the firm's page exactly
+Traded:         nothing. No signal has ever been sent to it.
 Considered:     Apex 50K EOD Trail 5-pack ($545) — NOT purchased
-Alternative:    ONE Phidias eval. NOT a $116 one-off: billing renews every 30
-                days (Terms art. 4.1) and a failed account resets on renewal.
-                No 30-day pass deadline, but no cost cap either.
-Blocked on:     a measured win rate and TP2 share (see top of file)
 ```
+
+**Nothing is running on it, because there is nothing to run.** Fourteen entry
+conditions across two screens, best +2.36 sigma, and that one failed both
+robustness checks. GB LIVE itself measures at 65.3% against a 66.7% coin flip.
+The account is a cheap option with no expiry pressure, held while the search
+continues — not a deployment.
+
+**The compliance calculus has changed.** `docs/compliance-questions.md` recorded
+that asking cost nothing because no accounts were held. That is no longer true at
+Phidias. The letter went out 26 Sep, before the purchase, which was the right
+order — but if the reply says the risk ladder falls under art. 6.2 "sudden
+enrichment", this is an account that would have to be traded differently.
+
+**What this account offers that the intraday screens never tested:** overnight
+and weekend holds are permitted. Every one of the fourteen ideas was an intraday
+entry measured over at most 240 bars. Multi-day holding is an untested dimension
+and this venue allows it.
 
 ---
 

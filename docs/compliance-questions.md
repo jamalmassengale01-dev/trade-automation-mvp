@@ -17,9 +17,14 @@ search summaries. A dated written answer from the firm is worth more than any
 page that can be screenshotted, and the firms' published pages have already
 contradicted each other across sources.
 
-**No accounts are held at any of them.** Asking before buying costs nothing;
-asking while holding a funded account is a different calculation. That advantage
-disappears the day an evaluation is purchased.
+**Superseded 26 Sep 2026: a Phidias 50K Premium evaluation has been purchased**
+($144.60 one-time). The letters went out before the purchase, which was the right
+order, but the "asking costs nothing" advantage no longer applies at Phidias. It
+still applies at Apex and DayTraders, where no accounts are held.
+
+The Phidias reply now matters more than it did when the letter was written. If
+art. 6.2 "sudden enrichment" is read to cover the risk ladder, that is an account
+already paid for which would have to be traded differently.
 
 File the replies against these questions when they arrive.
 
