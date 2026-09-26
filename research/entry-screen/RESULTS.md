@@ -12,6 +12,57 @@ to beat, not 50%.
 
 ---
 
+## Harness validated — 26 Sep 2026
+
+Before a third search, the obvious question: can this tester detect an edge at
+all? Fourteen nulls are consistent with "no edge in these ideas" and equally
+consistent with a bug suppressing signal — and this tester had already produced
+four (a counter reading zero against 1,062 trades, deep-backtest blindness,
+exits attached a bar late, runs truncating silently).
+
+A positive control settles it. The entry deliberately cheats, reading the hourly
+close before the hour has finished:
+
+```pine
+peek = request.security(syminfo.tickerid, "60", close, lookahead = barmerge.lookahead_on)
+longEntry  = peek > close
+shortEntry = peek < close
+```
+
+2,612 trades, and it is unmistakable:
+
+```
+target   coin flip   measured     edge     EV/trade
+ 0.25R      80.0%      90.8%   +13.77s    +0.103R
+ 0.50R      66.7%      82.8%   +17.54s    +0.211R
+ 1.00R      50.0%      68.4%   +18.78s    +0.336R
+ 4.00R      20.0%      29.7%   +12.45s    +0.456R
+```
+
+Cluster-robust +20.53, stable across halves (+13.56 / +13.01). **The harness
+works. The fourteen nulls are real nulls.**
+
+### And the control found a fifth bug, which is why it was worth running
+
+The first run of it reported **DEAD at +18.76 sigma**.
+
+One trade out of 2,613 — the very first, before `ta.atr(14)` had warmed up —
+carried `sd=NaN`, because Pine's `math.max(na, x)` returns `na`. That single
+value made the cost average nan, which made every EV nan, which made `ev > 0`
+false, which failed the verdict. A real edge arriving with one bad row would
+have been discarded without a word.
+
+Fixed at both ends: `edge.py` drops non-finite stop distances, reports how many,
+and refuses to score at all rather than silently returning DEAD when the EV is
+unusable; the tester will not take a trade before ATR is warm.
+
+None of the fourteen prior results were affected — every one of those conditions
+needs bars of history before it can fire, so ATR was always warm by their first
+trade. The control triggered it because it is the only condition that fires on
+bar one.
+
+---
+
 ## Screen 2 — 25 Sep 2026, bar +2.73 (16 declared)
 
 Sixteen ideas declared up front; five run as a pilot covering the four

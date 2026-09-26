@@ -49,7 +49,7 @@ def load(path):
                     "in dollars and cannot be turned into R without it."
                 )
             t['label'] = sig.split('sd=')[0].strip()
-            t['sd'] = float(sig.split('sd=')[1])
+            t['sd'] = float(sig.split('sd=')[1])   # may be nan — filtered below
             t['long'] = 'long' in r['Type']
             t['dt'] = r['Date and time']
         else:
@@ -57,10 +57,20 @@ def load(path):
             t['pnl'] = float(r['Net PnL USD'])
             t['exit'] = r['Signal']
     T = [t for t in tr.values() if 'sd' in t and 'mfe' in t]
+
+    # Drop trades whose stop distance is not a finite number.
+    #
+    # Pine's math.max(na, x) returns na, so a trade taken before ta.atr() has
+    # warmed up carries sd=NaN. Exactly one such trade in 2,613 was enough to
+    # make the cost average nan, which made every EV nan, which made `ev > 0`
+    # false, which reported a +18.76 sigma positive control as DEAD. A single
+    # bad row must not be able to discard a real result.
+    dropped = [t for t in T if not math.isfinite(t['sd']) or t['sd'] <= 0]
+    T = [t for t in T if math.isfinite(t['sd']) and t['sd'] > 0]
     for t in T:
         t['R'] = (t['mfe'] / PV) / t['sd']
     T.sort(key=lambda t: t['dt'])
-    return T
+    return T, dropped
 
 
 def z_for(T, target):
@@ -70,7 +80,7 @@ def z_for(T, target):
 
 
 def main(path, label):
-    T = load(path)
+    T, dropped = load(path)
     N = len(T)
     cost = sum(COMMISSION / (t['sd'] * PV) for t in T) / N
     ts = sum(t['exit'] == 'time stop' for t in T)
@@ -80,6 +90,9 @@ def main(path, label):
           f'{T[0]["dt"][:10]}..{T[-1]["dt"][:10]}  PnL ${sum(t["pnl"] for t in T):,.0f}')
     if ts:
         print(f'  {ts} time stops ({ts/N*100:.1f}%)')
+    if dropped:
+        print(f'  {len(dropped)} trade(s) dropped for a non-finite stop distance '
+              f'(first: {dropped[0]["dt"]}) — ATR not yet warm')
 
     # What the script said it was running, from the export itself. Three runs
     # came back as an earlier idea re-exported because a stale copy of the
@@ -170,6 +183,10 @@ def main(path, label):
     print(f'  EV at {g}R: {ev:+.3f}R/trade (cost {cost:.3f}R)'
           f'{"  — below cost" if ev <= 0 else ""}')
 
+    if not math.isfinite(ev):
+        print('\nVERDICT: CANNOT SCORE — expected value is not a number. '
+              'Fix the input before reading anything above.')
+        return
     ok = z >= BAR and min(z1, z2) >= 0.5 and ev > 0
     print(f'\nVERDICT: {"CARRY FORWARD — retest on MES, then the holdout" if ok else "DEAD"}')
 
