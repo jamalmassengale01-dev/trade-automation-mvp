@@ -291,6 +291,17 @@ is the first thing to drop if Phidias is the venue.
 Ask Phidias in writing before running the ladder there. A written answer costs
 nothing and the downside is termination without refund or payout (art. 6.2).
 
+**DayTraders' support bot, 26 Sep 2026: "Martingale (doubling size after losses)
+is strictly prohibited"**, plus a warning about "substantially larger positions
+compared to other trades". Second firm to describe this shape. A bot is not a
+binding answer and the question is escalated in `docs/compliance-questions.md`,
+but two firms now say something that covers a 1x/1x/2x/3x progression.
+
+**What the ladder is worth is now measured** — see *"MEASURED 26 September 2026"*
+below. Short version: it helps only at weak edge under a clock, and costs 5 to
+18 points of pass rate once the entry has a real edge. Kept as a decision, with
+the cost on record.
+
 ```
 Base risk = DLL / 3
   Apex 50K: $1,000 DLL → base risk = $334
@@ -691,6 +702,78 @@ Rationale:           Blown evals cost $109; calendar time is the scarce resource
 ```
 
 ---
+
+### MEASURED 26 September 2026 — what the portfolio layer is actually worth
+
+Two things had never been measured: what the risk ladder buys, and whether
+account rotation ("revolving door") does anything. Both now have numbers, from
+`npm run eval:sim` and `npm run fleet:sim`, run against the real `stepRisk`,
+`dllHeadroom` and `drawdownState` the executor calls.
+
+**Read these conditional on the edge.** Trading only starts once an entry clears
+the bar, so the positive-edge rows are the operating case and the zero-edge rows
+are a floor — useful for knowing what happens if the edge decays, not a plan.
+
+#### The ladder: `capStep` 3 versus flat base risk
+
+Everything identical except the ladder. Apex 50K pass rate, percentage points.
+
+```
+win / TP2      edge        30-day clock      no clock
+55% /  45%   EV -0.01R       +1.9pp           -3.4pp
+60% /  45%   EV +0.07R       +2.7pp          -11.8pp
+60% /  70%   EV +0.22R       +2.4pp          -21.6pp
+65% /  85%   EV +0.42R       -5.2pp          -17.8pp
+65% / 100%   EV +0.51R       -8.8pp          -16.0pp
+```
+
+**The ladder helps only at weak edge, and only under a clock.** In the intended
+operating regime — a real edge — it costs 5 to 18 points of pass rate. The
+better the entry gets, the more the ladder takes off the top.
+
+Its benefit at weak edge is also not what it looks like. At EV -0.01R with the
+clock it cuts seized accounts from 48.0% to 16.1% but pushes still-open from
+47.3% to 77.2%. It is converting dead accounts into stalled ones, and on a
+30-day clock a stall expires at the same $109.
+
+The ladder is a **kept decision** — it is the founder's core strategy. This is
+recorded so the cost is known, not to reopen it. Firm choice interacts with it:
+its only favourable regime needs the clock. Apex has one, Phidias does not, and
+DayTraders' pricing page shows none.
+
+#### The fleet: rotation, the bin rule, and price
+
+Net cash over 250 trading days, 10 slots, 7-day stagger.
+
+```
+                        no clock                  30-day clock
+edge              $109    $60    $44    $22    $109    $60    $44    $22
+no edge (floor)  -1,051   -404   -192    +99  -9,697 -4,889 -3,319 -1,161
+EV +0.22R       +13,738 +14,360 +14,563 +14,842  +26,285 +27,921 +28,455 +29,190
+EV +0.42R       +66,426 +67,022 +67,216 +67,484  +93,697 +94,573 +94,860 +95,253
+```
+
+**Rotation does not work.** Worse under a clock — idle accounts burn it without
+trading, so half-online buys 106 evaluations and passes 1.1 where all-online
+buys 98 and passes 4.9 — and indistinguishable without one. The system's current
+behaviour (every signal to every account) is not the mistake it was assumed to
+be.
+
+**The -6% bin rule cannot fire on futures.** 6% of a 50K account is $3,000; the
+drawdown gate seizes at $2,000. It is a forex figure, where 10% drawdowns are
+normal. Pinned by a test in `fleetMonteCarlo.test.ts` so it is noticed if a
+preset ever widens.
+
+**Evaluation price is a real but second-order lever.** Break-even at zero edge
+sits near $25 per evaluation. The bounded-downside insight behind the framework
+is genuine; it is just much smaller than the framework claims.
+
+**The edge dominates by an order of magnitude.** Same fleet, same rules, same
+policy: zero edge nets about nothing at best, EV +0.22R nets $14,000-26,000.
+
+**Both simulations are optimistic.** Qualifying days and the consistency rule
+are not modelled, and both delay payouts. Real figures are worse than these,
+which matters most in the zero-edge rows where the margin is already thin.
 
 ### Fleet Scaling Logic
 
@@ -1251,9 +1334,10 @@ a quiet market.
 ---
 
 *EdgePilot | GB LIVE v5 | Built by Jamal*
-*Last corrected: 25 September 2026 — GB LIVE measured: no edge. Replacement
+*Last corrected: 26 September 2026 — GB LIVE measured: no edge. Replacement
 search across two screens, fourteen ideas: no survivor. Execution path
 researched: the Tradovate individual API cannot reach prop accounts, and Apex
-permits automation on evals but not on PAs. All warnings are at the top; the
-holdout is still sealed.*
+permits automation on evals but not on PAs. Portfolio layer measured: the ladder
+costs pass rate once the entry has an edge, and account rotation does nothing.
+All warnings are at the top; the holdout is still sealed.*
 *This file is the single source of truth for Claude Code sessions on this project.*
