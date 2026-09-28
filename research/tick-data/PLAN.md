@@ -62,7 +62,8 @@ a week are spent discovering it.
 Databento gives **$125 in free credits on signup** and bills usage-based. That is
 very likely enough for:
 
-- **One month** of MNQ data, MBP-1 (top of book + trades) rather than full MBO
+- **One month** of MNQ, schema `trades`, **one contract** — see the data
+  specification below for why those last two words carry most of the cost
 - **One hypothesis**: cumulative trade imbalance over a 15-minute window
 - One run through the existing scoring protocol
 
@@ -141,18 +142,36 @@ matters: at 700 trades the chance of detecting a genuinely good entry is 20%.
 
 ## Data specification
 
-- **Instrument:** MNQ, front month, rolled on volume
+- **Instrument:** MNQ, **one contract at a time**, front month, rolled on volume
 - **Dataset:** `GLBX.MDP3` (CME Globex MDP 3.0)
-- **Schema:** `mbp-1` — top of book plus trades with aggressor side. Full `mbo`
-  is an order of magnitude more data and is only needed for queue-position work,
-  which is the fast end this plan deliberately avoids.
+- **Schema:** `trades` — every print with its aggressor side. **Corrected 28 Sep
+  2026; this said `mbp-1` and that was wrong.** The probe reads exactly five
+  columns — `ts_event`, `action`, `side`, `price`, `size` — and never touches a
+  bid or an ask. MBP-1 adds a top-of-book snapshot on every quote change, which
+  is the large majority of the bytes and all of it discarded on ingest. Full
+  `mbo` is larger again and only needed for queue-position work, which is the
+  fast end this plan deliberately avoids.
 - **Discovery window:** Sep 2023 – Mar 2025, matching both prior screens
 - **Holdout:** Mar 2025 – Sep 2026, **still sealed**
 - **Pilot slice:** one month inside the discovery window
 
-Get a quote before committing. Pricing is usage-based and not published; the
-figure quoted in conversation ($100–500) was an estimate from memory and has not
-been verified.
+### The two things that make the price wrong by orders of magnitude
+
+Measured against the portal on 28 Sep 2026, which quoted **$845.91 / 504.61 GB**
+for the plan as originally written.
+
+**1. No symbol filter buys the entire exchange.** `GLBX.MDP3` is every product on
+CME Globex. The symbol has to be set under *Customize download* — a single MNQ
+expiration is a small fraction of one percent of that 504 GB.
+
+**2. The schema was over-specified.** See above. `trades` carries the aggressor
+side, which is the only thing tick data provides that OHLCV does not, and
+nothing else.
+
+Both compound, and the pilot is one month rather than eighteen. Set all three
+and the quote should fall inside the signup credit. **Read the portal's own
+figure before buying** — the numbers in this file are for knowing which lever to
+pull, not for predicting a price.
 
 ---
 

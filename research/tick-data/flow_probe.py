@@ -2,9 +2,13 @@
 """
 Order-flow excursion probe.
 
-Reads a Databento MBP-1 CSV export, builds 5-minute bars with order-flow
-features, applies one entry condition, and writes a trade list in the SAME
-format `research/entry-screen/edge.py` already reads.
+Reads a Databento `trades` (or MBP-1) CSV export, builds 5-minute bars with
+order-flow features, applies one entry condition, and writes a trade list in the
+SAME format `research/entry-screen/edge.py` already reads.
+
+Order `trades`, not `mbp-1`: this file reads five columns — ts_event, action,
+side, price, size — and never looks at a bid or an ask. MBP-1's book snapshots
+are the bulk of the bytes and every one of them is discarded here.
 
 That last part is the whole design. The scoring — coin-flip baseline,
 cluster-robust standard errors, split-half stability, EV above commission, the
@@ -31,6 +35,7 @@ them lets a losing entry be tuned into something that looks profitable.
 import argparse
 import csv
 import math
+import random
 import sys
 from collections import deque
 from datetime import datetime
@@ -51,8 +56,57 @@ BAR_SECONDS = 300
 
 REQUIRED = ('ts_event', 'action', 'side', 'price', 'size')
 
+# Databento's native CSV writes prices as fixed-point integers scaled by 1e9.
+# The portal can emit decimals instead, and which one arrives depends on a
+# checkbox. Getting it wrong does not crash: a price of 2.0e13 gives an ATR of
+# 2.0e13, a stop of 2.0e13, and a probe that silently reports nothing rather
+# than something wrong. Detect it instead of trusting the export.
+DBN_PRICE_SCALE = 1e-9
+PLAUSIBLE_DECIMAL = (1.0, 1e6)
+PLAUSIBLE_FIXED = (1e9, 1e15)
 
-def read_trades(path):
+
+def detect_price_scale(path, sample=500):
+    """
+    Settle decimal-versus-fixed-point from the first few trades, not from faith
+    in a download setting. Returns the multiplier to apply to `price`.
+
+    Refuses rather than guesses when the magnitude fits neither convention —
+    an unrecognised scale is the failure that produces a plausible-looking zero.
+    """
+    prices = []
+    with open(path, newline='') as fh:
+        rdr = csv.DictReader(fh)
+        if 'price' not in (rdr.fieldnames or []):
+            return 1.0                       # the column check below will fire
+        for row in rdr:
+            if row.get('action') not in (None, '', 'T'):
+                continue
+            try:
+                p = abs(float(row['price']))
+            except (TypeError, ValueError):
+                continue
+            if p > 0:
+                prices.append(p)
+            if len(prices) >= sample:
+                break
+    if not prices:
+        return 1.0
+    prices.sort()
+    med = prices[len(prices) // 2]
+    if PLAUSIBLE_DECIMAL[0] <= med <= PLAUSIBLE_DECIMAL[1]:
+        return 1.0
+    if PLAUSIBLE_FIXED[0] <= med <= PLAUSIBLE_FIXED[1]:
+        return DBN_PRICE_SCALE
+    raise SystemExit(
+        f'Median price in the first {len(prices)} trades is {med:g}, which is '
+        'neither a decimal price nor a 1e-9 fixed-point one.\n'
+        'Refusing to guess: a wrong price scale makes the ATR, the stop and '
+        'every excursion wrong without failing.'
+    )
+
+
+def read_trades(path, price_scale=1.0, want_symbol=None):
     """
     Yield (timestamp, price, size, signed_size) for trade events only.
 
@@ -60,6 +114,12 @@ def read_trades(path):
     trade, 'A' when a sell did. That attribution is the single thing tick data
     provides which OHLCV cannot, and every feature here rests on it — so a file
     without it is rejected rather than silently treated as unsigned volume.
+
+    A file holding more than one contract is also rejected. Databento's parent
+    symbology (`MNQ.FUT`) returns every listed expiration, and interleaving two
+    expirations into one bar series produces hundred-point gaps at every
+    handover that read as real range — the ATR, the stop and the excursions all
+    inherit them.
     """
     with open(path, newline='') as fh:
         rdr = csv.DictReader(fh)
@@ -71,17 +131,34 @@ def read_trades(path):
                 'This probe needs an MBP-1 or trades export with an aggressor side. '
                 'An OHLCV export cannot be used — the whole point is the signed flow.'
             )
+        id_col = 'symbol' if 'symbol' in rdr.fieldnames else (
+            'instrument_id' if 'instrument_id' in rdr.fieldnames else None)
         seen_side = False
+        seen_ids = set()
         for row in rdr:
             if row.get('action') != 'T':
                 continue
+            if id_col:
+                ident = (row.get(id_col) or '').strip()
+                if want_symbol and ident != want_symbol:
+                    continue
+                if ident:
+                    seen_ids.add(ident)
+                    if len(seen_ids) > 1:
+                        raise SystemExit(
+                            f'Input holds more than one contract: '
+                            f'{", ".join(sorted(seen_ids))}.\n'
+                            'Two expirations interleaved into one bar series is '
+                            'not a price history. Re-export a single contract, '
+                            'or pick one with --symbol.'
+                        )
             side = (row.get('side') or '').strip().upper()
             if side in ('A', 'B'):
                 seen_side = True
             sign = 1 if side == 'B' else (-1 if side == 'A' else 0)
             ts = _parse_ts(row['ts_event'])
             size = int(float(row['size']))
-            yield ts, float(row['price']), size, sign * size
+            yield ts, float(row['price']) * price_scale, size, sign * size
         if not seen_side:
             raise SystemExit(
                 'No trade carried an aggressor side (B or A). Without it every '
@@ -228,8 +305,11 @@ def condition(name, bars, i):
         # A coin flip. Must land within noise of the 1/(1+T) line at every
         # horizon. Catches the opposite failure: a harness that MANUFACTURES
         # signal. The Pine harness never had this check.
-        import random
-        return random.choice([1, -1])
+        #
+        # Seeded off the bar index so the gate is reproducible. Unseeded, a run
+        # that drifts to 2.4 sigma and a run that drifts to 2.6 are the same
+        # code, and the gate stops meaning anything.
+        return 1 if random.Random(i * 2654435761).random() < 0.5 else -1
 
     raise SystemExit(f'Unknown idea: {name}')
 
@@ -291,10 +371,44 @@ def run(bars, idea, rth_only=True):
     return trades
 
 
+def _nth_sunday(year, month, n):
+    from datetime import date
+    d = date(year, month, 1)
+    return d.replace(day=1 + (6 - d.weekday()) % 7 + 7 * (n - 1))
+
+
+_DST_CACHE = {}
+
+
+def _et_offset(ts):
+    """
+    Hours to subtract from UTC for US Eastern: 4 under DST, 5 otherwise.
+
+    Hardcoded rather than read from a tz database so the ingest does not depend
+    on the container having zoneinfo. DST runs from the second Sunday in March
+    at 07:00 UTC to the first Sunday in November at 06:00 UTC.
+
+    This started life as a flat -5, which is right for a January slice and an
+    hour wrong for a June one — it would have shifted the session window to
+    08:30-15:00 ET, pulling in the pre-open and cutting the last half hour.
+    """
+    from datetime import datetime, timezone, timedelta
+    utc = datetime.fromtimestamp(ts, timezone.utc)
+    y = utc.year
+    if y not in _DST_CACHE:
+        start = datetime.combine(_nth_sunday(y, 3, 2), datetime.min.time(),
+                                 timezone.utc) + timedelta(hours=7)
+        end = datetime.combine(_nth_sunday(y, 11, 1), datetime.min.time(),
+                               timezone.utc) + timedelta(hours=6)
+        _DST_CACHE[y] = (start, end)
+    start, end = _DST_CACHE[y]
+    return 4 if start <= utc < end else 5
+
+
 def _in_rth(ts):
     """09:30-16:00 ET. The pilot is RTH-only; MBP-1 covers the full session."""
     from datetime import datetime, timezone, timedelta
-    et = datetime.fromtimestamp(ts, timezone.utc) - timedelta(hours=5)
+    et = datetime.fromtimestamp(ts, timezone.utc) - timedelta(hours=_et_offset(ts))
     mins = et.hour * 60 + et.minute
     return 570 <= mins < 960 and et.weekday() < 5
 
@@ -320,14 +434,20 @@ def write_trades(trades, path, label):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('input', help='Databento MBP-1 CSV export')
+    ap.add_argument('input', help='Databento trades or MBP-1 CSV export')
     ap.add_argument('--idea', required=True, choices=IDEAS)
     ap.add_argument('--out', required=True)
     ap.add_argument('--all-session', action='store_true',
                     help='Include overnight. Default is RTH only.')
+    ap.add_argument('--symbol', default=None,
+                    help='Keep only this contract, for an export holding several.')
     a = ap.parse_args()
 
-    bars, thr = build_bars(read_trades(a.input))
+    scale = detect_price_scale(a.input)
+    if scale != 1.0:
+        print(f'prices are 1e-9 fixed point; scaling by {scale:g}')
+
+    bars, thr = build_bars(read_trades(a.input, scale, a.symbol))
     trades = run(bars, a.idea, rth_only=not a.all_session)
 
     span = ''

@@ -42,6 +42,109 @@ def score(csv_path, label):
     return float(m.group(1)), int(n.group(1)) if n else 0
 
 
+def _rewrite(src, dst, fn):
+    """Copy a synthetic export, transforming each data row."""
+    with open(src) as fi, open(dst, 'w') as fo:
+        header = fi.readline()
+        cols = header.strip().split(',')
+        fo.write(header)
+        for line in fi:
+            parts = line.rstrip('\n').split(',')
+            fn(dict(zip(cols, parts)), parts, cols)
+            fo.write(','.join(parts) + '\n')
+
+
+def _ingest_gates(tmp, probe, flat, gates):
+    """
+    The synthetic generator writes decimal prices and one contract, which is the
+    happy path. A real Databento export can write 1e-9 fixed-point integers
+    depending on a download checkbox, and parent symbology returns every
+    expiration at once. Neither failure crashes — the first makes the stop
+    2e13 points wide, the second invents hundred-point gaps at each handover.
+    Both would read as "no trades" or as range that is not there.
+    """
+    def report(name, ok, detail):
+        gates.append(ok)
+        print(f'  {"PASS" if ok else "FAIL"}  {name:34s} {detail}')
+
+    base = os.path.join(tmp, 'ing_base.csv')
+    sh([sys.executable, probe, flat, '--idea', 'delta-momentum', '--out', base])
+    with open(base) as fh:
+        base_rows = fh.read()
+
+    # 1. Fixed-point prices must be detected and produce an identical trade list.
+    fixed = os.path.join(tmp, 'fixed.csv')
+    ipx = None
+
+    def to_fixed(row, parts, cols):
+        nonlocal ipx
+        if ipx is None:
+            ipx = cols.index('price')
+        parts[ipx] = str(int(round(float(parts[ipx]) * 1e9)))
+
+    _rewrite(flat, fixed, to_fixed)
+    out = os.path.join(tmp, 'ing_fixed.csv')
+    sh([sys.executable, probe, fixed, '--idea', 'delta-momentum', '--out', out])
+    with open(out) as fh:
+        same = fh.read() == base_rows
+    report('1e-9 fixed-point prices', same,
+           'identical trade list to decimal prices' if same
+           else 'DIFFERENT trade list — the scale is being mishandled')
+
+    # 2. The `trades` schema has no book columns at all. Ordering it instead of
+    #    MBP-1 is the difference between a pilot inside the signup credit and an
+    #    $845 quote, so prove it is sufficient rather than asserting it.
+    bare = os.path.join(tmp, 'trades_schema.csv')
+    drop = ('bid_px_00', 'ask_px_00', 'bid_sz_00', 'ask_sz_00')
+    with open(flat) as fi, open(bare, 'w') as fo:
+        cols = fi.readline().strip().split(',')
+        keep = [i for i, c in enumerate(cols) if c not in drop]
+        fo.write(','.join(cols[i] for i in keep) + '\n')
+        for line in fi:
+            p = line.rstrip('\n').split(',')
+            fo.write(','.join(p[i] for i in keep) + '\n')
+    out = os.path.join(tmp, 'ing_bare.csv')
+    sh([sys.executable, probe, bare, '--idea', 'delta-momentum', '--out', out])
+    with open(out) as fh:
+        same = fh.read() == base_rows
+    report('trades schema (no book columns)', same,
+           'identical trade list to MBP-1 — order the cheaper schema' if same
+           else 'DIFFERENT — something reads the book after all')
+
+    # 3. Two contracts in one file must be refused, not silently interleaved.
+    mixed = os.path.join(tmp, 'mixed.csv')
+    isym = [None]
+    n = [0]
+
+    def to_mixed(row, parts, cols):
+        if isym[0] is None:
+            isym[0] = cols.index('symbol')
+        n[0] += 1
+        if n[0] % 1000 == 0:
+            parts[isym[0]] = 'MNQH5'
+    _rewrite(flat, mixed, to_mixed)
+    r = subprocess.run([sys.executable, probe, mixed, '--idea', 'delta-momentum',
+                        '--out', os.path.join(tmp, 'ing_mixed.csv')],
+                       capture_output=True, text=True)
+    refused = r.returncode != 0 and 'more than one contract' in (r.stdout + r.stderr)
+    report('two contracts in one export', refused,
+           'refused' if refused else 'ACCEPTED — expirations would interleave')
+
+    # 4. Daylight saving. A flat UTC-5 offset is right in January and an hour
+    #    wrong in June, which shifts the session window rather than failing.
+    from datetime import datetime, timezone
+    sys.path.insert(0, HERE)
+    import flow_probe
+    jan_open = int(datetime(2024, 1, 3, 14, 30, tzinfo=timezone.utc).timestamp())
+    jun_open = int(datetime(2024, 6, 3, 13, 30, tzinfo=timezone.utc).timestamp())
+    jun_early = int(datetime(2024, 6, 3, 13, 0, tzinfo=timezone.utc).timestamp())
+    dst_ok = (flow_probe._in_rth(jan_open) and flow_probe._in_rth(jun_open)
+              and not flow_probe._in_rth(jun_early))
+    report('session window across DST', dst_ok,
+           '09:30 ET is in session in both January and June' if dst_ok
+           else 'the window is shifted in one of the two')
+
+
 def main():
     tmp = tempfile.mkdtemp()
     synth = os.path.join(HERE, 'synth.py')
@@ -79,11 +182,14 @@ def main():
     gate('real condition, edge planted', edged, 'delta-momentum', 'dmedge',
          lambda z: z >= 5.0, 'needs z >= +5')
 
+    print('\nIngest gates (the export format, not the statistics):')
+    _ingest_gates(tmp, probe, flat, gates)
+
     print()
     if all(gates):
-        print('All four gates pass. The harness detects a real effect, reports '
-              'nothing when there is none,\nand distinguishes the two. Results '
-              'from it can be read.')
+        print(f'All {len(gates)} gates pass. The harness detects a real effect, '
+              'reports nothing when there is none,\ndistinguishes the two, and '
+              'reads the export format correctly. Results from it can be read.')
         return 0
     print('A gate failed. Do not read any result from this harness until it is fixed.')
     return 1

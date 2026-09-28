@@ -32,16 +32,42 @@ with and without a planted flow-to-return relationship. A lookahead control only
 proves the harness can see something enormous. Telling a real effect from its
 absence is the job.
 
-Current status: **all four pass** (+8.14 / +0.03 / -0.12 / +16.62).
+Current status: **all four pass** (+8.14 / +0.79 / -0.12 / +16.62).
+
+Three further gates cover the export format rather than the statistics, because
+a real Databento file can differ from the synthetic one in ways that do not
+crash: prices as 1e-9 fixed-point integers, several expirations in one file, and
+a session window that is an hour wrong outside winter.
+
+```
+1e-9 fixed-point prices       must give a trade list identical to decimals
+two contracts in one export   must be refused, not interleaved
+session window across DST     09:30 ET in session in January AND June
+```
 
 Do not read a result from this harness if a gate is failing.
 
 ## The pilot
 
+### Ordering the data without overpaying
+
+The portal quoted **$845.91** for the spec as first written. Three settings, all
+under *Customize download*:
+
+| | |
+|---|---|
+| **Dataset** | `GLBX.MDP3` |
+| **Schema** | **`trades`**, not `mbp-1`. The probe reads `ts_event`, `action`, `side`, `price`, `size` and nothing else — no bid, no ask. MBP-1 adds a book snapshot per quote change, which is most of the bytes and all discarded. |
+| **Symbols** | **One contract**, e.g. `MNQZ3`. Left blank you are buying every product on CME Globex — that is what the 504 GB was. |
+| **Time range** | One month inside Sep 2023 – Mar 2025. The Mar 2025 – Sep 2026 holdout stays sealed. |
+| **Encoding** | CSV. Decimal or fixed-point prices both work — the ingest detects which. |
+
+Read the portal's figure before buying. The point of the table is which lever to
+pull, not what it will cost.
+
 ```bash
-# 1. Download one month of MNQ MBP-1 from Databento's portal as CSV.
-#    $125 in signup credits should cover it. MBP-1, not OHLCV — the whole
-#    point is the aggressor side on each trade.
+# 1. Download one month of MNQ trades from Databento's portal as CSV.
+#    Not OHLCV — the whole point is the aggressor side on each trade.
 
 # 2. Probe it
 python3 flow_probe.py mnq_jan2024.csv --idea delta-momentum --out trades.csv
