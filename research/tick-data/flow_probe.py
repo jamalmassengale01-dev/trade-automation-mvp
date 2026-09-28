@@ -35,6 +35,7 @@ them lets a losing entry be tuned into something that looks profitable.
 import argparse
 import csv
 import math
+import os
 import random
 import sys
 from collections import deque
@@ -64,6 +65,35 @@ REQUIRED = ('ts_event', 'action', 'side', 'price', 'size')
 DBN_PRICE_SCALE = 1e-9
 PLAUSIBLE_DECIMAL = (1.0, 1e6)
 PLAUSIBLE_FIXED = (1e9, 1e15)
+
+
+def expand_inputs(paths):
+    """
+    Accept files, directories or globs, and return them in date order.
+
+    Databento's batch download splits by duration, so a month arrives as ~20
+    daily CSVs rather than one file. Sorting matters: the bar builder assumes
+    time moves forward, and shuffled days would silently produce nonsense ATRs
+    at every boundary. Filenames carry an ISO date, so a lexical sort is a
+    chronological one — but the timestamps are checked below regardless, because
+    a naming convention is not a guarantee.
+    """
+    import glob as _glob
+    out = []
+    for p in paths:
+        if os.path.isdir(p):
+            found = sorted(_glob.glob(os.path.join(p, '*.csv')))
+            if not found:
+                raise SystemExit(f'No .csv files in {p}')
+            out.extend(found)
+        elif any(c in p for c in '*?['):
+            found = sorted(_glob.glob(p))
+            if not found:
+                raise SystemExit(f'Nothing matched {p}')
+            out.extend(found)
+        else:
+            out.append(p)
+    return sorted(out)
 
 
 def detect_price_scale(path, sample=500):
@@ -106,7 +136,32 @@ def detect_price_scale(path, sample=500):
     )
 
 
-def read_trades(path, price_scale=1.0, want_symbol=None):
+def read_all(paths, price_scale=1.0, want_symbol=None):
+    """
+    Stream several files as one series, refusing any that goes backwards.
+
+    The two-contract guard has to span files as well as rows — the whole point
+    of splitting by day is that no single file reveals a roll.
+    """
+    state = {'ids': set(), 'side': False, 'last': None}
+    for p in paths:
+        for rec in read_trades(p, price_scale, want_symbol, state):
+            if state['last'] is not None and rec[0] < state['last'] - 60:
+                raise SystemExit(
+                    f'{os.path.basename(p)} contains timestamps earlier than the '
+                    'file before it. The inputs are out of order, and the bars '
+                    'would be built from a shuffled series.'
+                )
+            state['last'] = rec[0]
+            yield rec
+    if not state['side']:
+        raise SystemExit(
+            'No trade carried an aggressor side (B or A). Without it every '
+            'feature here is zero. Check the schema — trades or MBP-1, not OHLCV.'
+        )
+
+
+def read_trades(path, price_scale=1.0, want_symbol=None, state=None):
     """
     Yield (timestamp, price, size, signed_size) for trade events only.
 
@@ -133,8 +188,10 @@ def read_trades(path, price_scale=1.0, want_symbol=None):
             )
         id_col = 'symbol' if 'symbol' in rdr.fieldnames else (
             'instrument_id' if 'instrument_id' in rdr.fieldnames else None)
-        seen_side = False
-        seen_ids = set()
+        # Carried across files when reading a day-split batch, so a roll between
+        # two files is caught the same way as one inside a file.
+        local = state if state is not None else {'ids': set(), 'side': False}
+        seen_ids = local['ids']
         for row in rdr:
             if row.get('action') != 'T':
                 continue
@@ -154,15 +211,15 @@ def read_trades(path, price_scale=1.0, want_symbol=None):
                         )
             side = (row.get('side') or '').strip().upper()
             if side in ('A', 'B'):
-                seen_side = True
+                local['side'] = True
             sign = 1 if side == 'B' else (-1 if side == 'A' else 0)
             ts = _parse_ts(row['ts_event'])
             size = int(float(row['size']))
             yield ts, float(row['price']) * price_scale, size, sign * size
-        if not seen_side:
+        if state is None and not local['side']:
             raise SystemExit(
                 'No trade carried an aggressor side (B or A). Without it every '
-                'feature here is zero. Check the schema — MBP-1 or trades, not OHLCV.'
+                'feature here is zero. Check the schema — trades or MBP-1, not OHLCV.'
             )
 
 
@@ -434,7 +491,9 @@ def write_trades(trades, path, label):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('input', help='Databento trades or MBP-1 CSV export')
+    ap.add_argument('input', nargs='+',
+                    help='Databento trades/MBP-1 CSV export: one file, several, '
+                         'a glob, or the directory a day-split batch unpacked to')
     ap.add_argument('--idea', required=True, choices=IDEAS)
     ap.add_argument('--out', required=True)
     ap.add_argument('--all-session', action='store_true',
@@ -443,11 +502,16 @@ def main():
                     help='Keep only this contract, for an export holding several.')
     a = ap.parse_args()
 
-    scale = detect_price_scale(a.input)
+    paths = expand_inputs(a.input)
+    if len(paths) > 1:
+        print(f'{len(paths)} files, {os.path.basename(paths[0])} .. '
+              f'{os.path.basename(paths[-1])}')
+
+    scale = detect_price_scale(paths[0])
     if scale != 1.0:
         print(f'prices are 1e-9 fixed point; scaling by {scale:g}')
 
-    bars, thr = build_bars(read_trades(a.input, scale, a.symbol))
+    bars, thr = build_bars(read_all(paths, scale, a.symbol))
     trades = run(bars, a.idea, rth_only=not a.all_session)
 
     span = ''
@@ -471,5 +535,4 @@ if __name__ == '__main__':
         sys.exit(main())
     except BrokenPipeError:
         # Piping into head closes stdout early. Not a failure.
-        os = __import__('os')
         os._exit(0)

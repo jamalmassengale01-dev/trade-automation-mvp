@@ -111,7 +111,43 @@ def _ingest_gates(tmp, probe, flat, gates):
            'identical trade list to MBP-1 — order the cheaper schema' if same
            else 'DIFFERENT — something reads the book after all')
 
-    # 3. Two contracts in one file must be refused, not silently interleaved.
+    # 3. Databento's batch download splits by duration, so a month arrives as
+    #    ~20 daily files. Reading them must equal reading one concatenated file,
+    #    and out-of-order input must fail rather than build shuffled bars.
+    daydir = os.path.join(tmp, 'daysplit')
+    os.makedirs(daydir, exist_ok=True)
+    with open(flat) as fi:
+        header = fi.readline()
+        handles = {}
+        for line in fi:
+            day = line.split(',', 1)[0][:10]
+            if day not in handles:
+                handles[day] = open(os.path.join(daydir, f'mnq-{day}.csv'), 'w')
+                handles[day].write(header)
+            handles[day].write(line)
+        for h in handles.values():
+            h.close()
+    out = os.path.join(tmp, 'ing_split.csv')
+    sh([sys.executable, probe, daydir, '--idea', 'delta-momentum', '--out', out])
+    with open(out) as fh:
+        same = fh.read() == base_rows
+    report(f'day-split batch ({len(handles)} files)', same,
+           'identical trade list to one file' if same
+           else 'DIFFERENT — the files are not being stitched correctly')
+
+    names = sorted(os.listdir(daydir))
+    r = subprocess.run([sys.executable, probe,
+                        os.path.join(daydir, names[-1]),
+                        os.path.join(daydir, names[0]),
+                        '--idea', 'delta-momentum',
+                        '--out', os.path.join(tmp, 'ing_rev.csv')],
+                       capture_output=True, text=True)
+    # expand_inputs sorts, so this must succeed rather than fail — the guard is
+    # there for filenames that do not sort chronologically.
+    report('day-split given out of order', r.returncode == 0,
+           'sorted before reading' if r.returncode == 0 else 'not sorted')
+
+    # 4. Two contracts in one file must be refused, not silently interleaved.
     mixed = os.path.join(tmp, 'mixed.csv')
     isym = [None]
     n = [0]
@@ -130,7 +166,7 @@ def _ingest_gates(tmp, probe, flat, gates):
     report('two contracts in one export', refused,
            'refused' if refused else 'ACCEPTED — expirations would interleave')
 
-    # 4. Daylight saving. A flat UTC-5 offset is right in January and an hour
+    # 5. Daylight saving. A flat UTC-5 offset is right in January and an hour
     #    wrong in June, which shifts the session window rather than failing.
     from datetime import datetime, timezone
     sys.path.insert(0, HERE)

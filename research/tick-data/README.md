@@ -57,12 +57,17 @@ under *Customize download*:
 | | |
 |---|---|
 | **Dataset** | `GLBX.MDP3` |
-| **Schema** | **`trades`**, not `mbp-1`. The probe reads `ts_event`, `action`, `side`, `price`, `size` and nothing else — no bid, no ask. MBP-1 adds a book snapshot per quote change, which is most of the bytes and all discarded. |
+| **Schema** | **`trades`**, not `mbp-1`. The probe reads `ts_event`, `action`, `side`, `price`, `size` and nothing else — no bid, no ask. Note the per-GB rates run the other way ($28.00 against $1.80), because Databento has already priced in the volume difference; trades still wins, but by less than the byte count suggests. |
 | **Symbols** | **One contract**, via *raw symbol* symbology. Left blank you are buying every product on CME Globex — that is what the 504 GB was. |
 | **Time range** | One month inside Sep 2023 – Mar 2025. The Mar 2025 – Sep 2026 holdout stays sealed. |
-| **Encoding** | CSV. Decimal or fixed-point prices both work — the ingest detects which. |
+| **Encoding** | **CSV**, not the DBN default. Decimal or fixed-point prices both work — the ingest detects which. |
+| **Split by duration** | Anything. A day-split batch is read by passing the directory. |
 
-**The search box on the browse page indexes products, not expirations.** `MNQ`
+**The symbol search is scoped to the selected time range.** Set the dates
+first: searching for a 2023 contract inside a 2026 window correctly returns
+nothing, and it looks like the symbol does not exist.
+
+**And the browse page's search indexes products, not expirations.** `MNQ`
 is there; `MNQH4` is not, and searching for it returns nothing. Select the `MNQ`
 product first, then name the contract inside *Customize download* with the
 symbology type set to **raw symbol**.
@@ -93,8 +98,9 @@ pull, not what it will cost.
 # 1. Download one month of MNQ trades from Databento's portal as CSV.
 #    Not OHLCV — the whole point is the aggressor side on each trade.
 
-# 2. Probe it
-python3 flow_probe.py mnq_jan2024.csv --idea delta-momentum --out trades.csv
+# 2. Probe it. A batch split by day unpacks to many CSVs; point at the
+#    directory and they are stitched in date order.
+python3 flow_probe.py mnq_jan2024/ --idea delta-momentum --out trades.csv
 
 # 3. Score it with the protocol that has absorbed five bug fixes
 python3 ../entry-screen/edge.py trades.csv delta-momentum
