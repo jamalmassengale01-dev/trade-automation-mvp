@@ -58,7 +58,7 @@ under *Customize download*:
 |---|---|
 | **Dataset** | `GLBX.MDP3` |
 | **Schema** | **`trades`**, not `mbp-1`. The probe reads `ts_event`, `action`, `side`, `price`, `size` and nothing else — no bid, no ask. Note the per-GB rates run the other way ($28.00 against $1.80), because Databento has already priced in the volume difference; trades still wins, but by less than the byte count suggests. |
-| **Symbols** | **One contract**, via *raw symbol* symbology. Left blank you are buying every product on CME Globex — that is what the 504 GB was. |
+| **Symbols** | The **`MNQ` product**. Left blank you are buying every product on CME Globex — that is what the 504 GB was. The portal selects products, not expirations, so the export holds every MNQ contract that traded; `--front` picks the front month out of it by volume. |
 | **Time range** | One month inside Sep 2023 – Mar 2025. The Mar 2025 – Sep 2026 holdout stays sealed. |
 | **Encoding** | **CSV**, not the DBN default. Decimal or fixed-point prices both work — the ingest detects which. |
 | **Split by duration** | Anything. A day-split batch is read by passing the directory. |
@@ -72,24 +72,21 @@ is there; `MNQH4` is not, and searching for it returns nothing. Select the `MNQ`
 product first, then name the contract inside *Customize download* with the
 symbology type set to **raw symbol**.
 
-Which contract, for a one-month pilot — MNQ rolls quarterly on H/M/U/Z:
+**The export holds every expiration, and that is expected.** A month of the MNQ
+product carries the front month plus a tail of deferred contracts with a few
+hundred prints each. Run with `--front` and the probe takes the one holding the
+volume — a more reliable way to identify the front month than a hand-written
+contract code, and it prints the census so the choice is visible:
 
-| month | front contract |
-|---|---|
-| Sep – mid-Dec 2023 | `MNQZ3` |
-| mid-Dec 2023 – mid-Mar 2024 | `MNQH4` |
-| mid-Mar – mid-Jun 2024 | `MNQM4` |
-| mid-Jun – mid-Sep 2024 | `MNQU4` |
-| mid-Sep – mid-Dec 2024 | `MNQZ4` |
-| mid-Dec 2024 – Mar 2025 | `MNQH5` |
+```
+front month MNQH4: 80,228 of 93,599 trades (85.7%), 2 contracts in the export
+```
 
-Pick a month that sits wholly inside one row — January 2024 on `MNQH4` is the
-clean default.
-
-**Not the continuous symbols** (`MNQ.v.0`, `MNQ.c.0`) for the pilot. They splice
-expirations without back-adjusting, so the series carries a several-hundred-point
-gap at each roll; the ingest refuses such a file as two contracts, which is right.
-Rolling is a problem for the full 18-month buy, not for one month.
+Without `--front` or `--symbol` it refuses and shows that table, because
+interleaving two expirations into one bar series invents a gap at every
+handover. **A window that crosses a roll needs more than `--front`** — it picks
+one contract for the whole span. One month inside a quarter does not cross one;
+MNQ rolls on H/M/U/Z, so January 2024 sits wholly inside `MNQH4`.
 
 Read the portal's figure before buying. The point of the table is which lever to
 pull, not what it will cost.
@@ -100,7 +97,7 @@ pull, not what it will cost.
 
 # 2. Probe it. A batch split by day unpacks to many CSVs; point at the
 #    directory and they are stitched in date order.
-python3 flow_probe.py mnq_jan2024/ --idea delta-momentum --out trades.csv
+python3 flow_probe.py mnq_jan2024/ --front --idea delta-momentum --out trades.csv
 
 # 3. Score it with the protocol that has absorbed five bug fixes
 python3 ../entry-screen/edge.py trades.csv delta-momentum

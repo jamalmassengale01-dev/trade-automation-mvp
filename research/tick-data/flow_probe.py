@@ -57,6 +57,14 @@ BAR_SECONDS = 300
 
 REQUIRED = ('ts_event', 'action', 'side', 'price', 'size')
 
+
+class MultipleContracts(Exception):
+    """Raised mid-stream so the caller can run a census and say which to pick."""
+
+    def __init__(self, ids):
+        super().__init__(', '.join(ids))
+        self.ids = ids
+
 # Databento's native CSV writes prices as fixed-point integers scaled by 1e9.
 # The portal can emit decimals instead, and which one arrives depends on a
 # checkbox. Getting it wrong does not crash: a price of 2.0e13 gives an ATR of
@@ -94,6 +102,34 @@ def expand_inputs(paths):
         else:
             out.append(p)
     return sorted(out)
+
+
+def census(paths):
+    """
+    Count trades per contract across the inputs.
+
+    Databento's portal selects a PRODUCT, not an expiration, so a month of MNQ
+    arrives holding every expiration that traded — the front month plus a long
+    tail of deferred contracts with a few hundred prints each. The front month
+    is simply the one carrying the volume, which is a more reliable way to pick
+    it than trusting a hand-written contract code.
+    """
+    counts = {}
+    for p in paths:
+        with open(p, newline='') as fh:
+            rdr = csv.DictReader(fh)
+            cols = rdr.fieldnames or []
+            id_col = 'symbol' if 'symbol' in cols else (
+                'instrument_id' if 'instrument_id' in cols else None)
+            if id_col is None:
+                return {}
+            for row in rdr:
+                if row.get('action') != 'T':
+                    continue
+                ident = (row.get(id_col) or '').strip()
+                if ident:
+                    counts[ident] = counts.get(ident, 0) + 1
+    return counts
 
 
 def detect_price_scale(path, sample=500):
@@ -202,13 +238,7 @@ def read_trades(path, price_scale=1.0, want_symbol=None, state=None):
                 if ident:
                     seen_ids.add(ident)
                     if len(seen_ids) > 1:
-                        raise SystemExit(
-                            f'Input holds more than one contract: '
-                            f'{", ".join(sorted(seen_ids))}.\n'
-                            'Two expirations interleaved into one bar series is '
-                            'not a price history. Re-export a single contract, '
-                            'or pick one with --symbol.'
-                        )
+                        raise MultipleContracts(sorted(seen_ids))
             side = (row.get('side') or '').strip().upper()
             if side in ('A', 'B'):
                 local['side'] = True
@@ -489,6 +519,38 @@ def write_trades(trades, path, label):
                         f"{t['pnl']:.2f}", f'{mfe_usd:.2f}', '', t['bars']])
 
 
+def _pick_front(counts):
+    """The front month is the contract carrying the volume. Nothing subtler."""
+    if not counts:
+        return None
+    sym, n = max(counts.items(), key=lambda kv: kv[1])
+    total = sum(counts.values())
+    print(f'front month {sym}: {n:,} of {total:,} trades '
+          f'({100 * n / total:.1f}%), {len(counts)} contracts in the export')
+    return sym
+
+
+def _explain_contracts(paths):
+    """
+    A refusal is only useful if it says what to do next. Count the prints per
+    contract and show them, because the answer is almost always visible in the
+    distribution: one contract with 97% of the volume and a tail of deferreds.
+    """
+    counts = census(paths)
+    print('\nThis export holds more than one contract, which is what selecting '
+          'a PRODUCT\nrather than an expiration gives you. Interleaving two '
+          'expirations into one bar\nseries would invent a gap at every '
+          'handover.\n')
+    total = sum(counts.values()) or 1
+    for sym, n in sorted(counts.items(), key=lambda kv: -kv[1])[:12]:
+        print(f'  {sym:<12} {n:>12,}  {100 * n / total:5.1f}%')
+    if len(counts) > 12:
+        print(f'  ... and {len(counts) - 12} more')
+    print('\nRe-run with --front to take the highest-volume contract, '
+          'or --symbol <code> to choose.')
+    return 1
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('input', nargs='+',
@@ -500,6 +562,11 @@ def main():
                     help='Include overnight. Default is RTH only.')
     ap.add_argument('--symbol', default=None,
                     help='Keep only this contract, for an export holding several.')
+    ap.add_argument('--front', action='store_true',
+                    help='Keep the highest-volume contract. Use this when the '
+                         'export came from selecting a product rather than one '
+                         'expiration; it does not span a roll, so check the '
+                         'census it prints if the window crosses one.')
     a = ap.parse_args()
 
     paths = expand_inputs(a.input)
@@ -511,7 +578,14 @@ def main():
     if scale != 1.0:
         print(f'prices are 1e-9 fixed point; scaling by {scale:g}')
 
-    bars, thr = build_bars(read_all(paths, scale, a.symbol))
+    want = a.symbol
+    if a.front and not want:
+        want = _pick_front(census(paths))
+
+    try:
+        bars, thr = build_bars(read_all(paths, scale, want))
+    except MultipleContracts:
+        return _explain_contracts(paths)
     trades = run(bars, a.idea, rth_only=not a.all_session)
 
     span = ''
