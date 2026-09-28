@@ -137,6 +137,58 @@ def expand_inputs(paths):
     return sorted(out)
 
 
+def census_by_file(paths):
+    """
+    Count trades per contract WITHIN each file, so the front month can change
+    across a window.
+
+    Databento splits a batch by day, so one file is one session and the file is
+    a free proxy for the date — cheaper than parsing 13M timestamps to group
+    them. A window longer than a quarter crosses a roll, and picking one
+    contract for the whole span would throw away every session on the other
+    side of it.
+    """
+    return {p: census([p]) for p in paths}
+
+
+def front_by_file(paths, quiet=False):
+    """
+    The front month per session, and where it changes.
+
+    Returns (mapping, roll_dates). A roll is announced rather than smoothed:
+    the two contracts trade at different prices, so the handover is a real
+    discontinuity that the ATR and any open position have to be told about.
+    """
+    per_file = census_by_file(paths)
+    front, rolls, prev = {}, [], None
+    for p in paths:
+        counts = per_file[p]
+        if not counts:
+            continue
+        sym = max(counts.items(), key=lambda kv: kv[1])[0]
+        front[p] = sym
+        if prev is not None and sym != prev:
+            rolls.append((os.path.basename(p), prev, sym))
+        prev = sym
+    if not quiet:
+        print(f'front month per session: {", ".join(sorted(set(front.values())))}')
+        for name, a, b in rolls:
+            print(f'  roll at {name}: {a} -> {b}')
+    roll_paths = {p for p in paths if p in front and front[p] != prev_of(paths, front, p)}
+    return front, roll_paths
+
+
+def prev_of(paths, front, target):
+    """The front contract of the last session before `target` that had one."""
+    prev = None
+    for p in paths:
+        if p == target:
+            return prev
+        if p in front:
+            prev = front[p]
+    return prev
+
+
 def census(paths):
     """
     Count trades per contract across the inputs.
@@ -205,7 +257,7 @@ def detect_price_scale(path, sample=500):
     )
 
 
-def read_all(paths, price_scale=1.0, want_symbol=None):
+def read_all(paths, price_scale=1.0, want_symbol=None, roll_paths=frozenset()):
     """
     Stream several files as one series, refusing any that goes backwards.
 
@@ -213,8 +265,22 @@ def read_all(paths, price_scale=1.0, want_symbol=None):
     of splitting by day is that no single file reveals a roll.
     """
     state = {'ids': set(), 'side': False, 'last': None}
+    per_file = isinstance(want_symbol, dict)
     for p in paths:
-        for rec in read_trades(p, price_scale, want_symbol, state):
+        sym = want_symbol.get(p) if per_file else want_symbol
+        if per_file:
+            # Each session is filtered to its own front month, so the set of
+            # contracts seen legitimately changes at a roll. Reset the
+            # single-contract guard per file; it still catches two expirations
+            # inside one session, which is the case it exists for.
+            state['ids'] = set()
+            if p in roll_paths:
+                # A sentinel in the stream, not a trade. The bar builder uses it
+                # to break the ATR chain and flatten any open position, because
+                # the two contracts trade at different prices and the handover
+                # is a real discontinuity rather than a move.
+                yield ('ROLL', sym)
+        for rec in read_trades(p, price_scale, sym, state):
             if state['last'] is not None and rec[0] < state['last'] - 60:
                 raise SystemExit(
                     f'{os.path.basename(p)} contains timestamps earlier than the '
@@ -323,10 +389,19 @@ def build_bars(trades, big_print_threshold=None):
     bars = []
     cur = None
     cum = 0
+    roll_at = set()
     first_day = None
     first_day_sizes = []
 
-    for ts, px, size, signed in trades:
+    for rec in trades:
+        if rec[0] == 'ROLL':
+            if cur is not None:
+                bars.append(cur)
+                cur = None
+            roll_at.add(len(bars))      # index of the first bar of the new contract
+            cum = 0
+            continue
+        ts, px, size, signed = rec
         day = ts // 86400
         if first_day is None:
             first_day = day
@@ -356,15 +431,21 @@ def build_bars(trades, big_print_threshold=None):
         big_print_threshold = (first_day_sizes[int(0.95 * len(first_day_sizes))]
                                if first_day_sizes else 10)
 
-    _add_atr(bars)
+    _add_atr(bars, roll_at)
     _add_delta_z(bars)
-    return bars, big_print_threshold
+    return bars, big_print_threshold, roll_at
 
 
-def _add_atr(bars):
+def _add_atr(bars, roll_at=frozenset()):
     trs = deque(maxlen=ATR_LEN)
     prev_close = None
-    for b in bars:
+    for i, b in enumerate(bars):
+        if i in roll_at:
+            # New contract, different price. Carrying true range across the
+            # handover would inject the roll gap into the ATR for 14 bars,
+            # inflating every stop placed in that span.
+            trs.clear()
+            prev_close = None
         tr = (b.h - b.l) if prev_close is None else max(
             b.h - b.l, abs(b.h - prev_close), abs(b.l - prev_close))
         trs.append(tr)
@@ -441,11 +522,19 @@ IDEAS = ('delta-momentum', 'delta-divergence', 'positive-control', 'negative-con
 # The probe
 # ---------------------------------------------------------------------------
 
-def run(bars, idea, rth_only=True):
+def run(bars, idea, rth_only=True, roll_at=frozenset()):
     trades = []
     pos = None
 
     for i, b in enumerate(bars):
+        if i in roll_at and pos is not None:
+            # Flatten at the old contract's last close. Holding a position
+            # across a roll would score the handover gap as P&L, which is the
+            # single largest fake number available in futures backtesting.
+            prev = bars[i - 1]
+            pnl = (prev.c - pos['entry']) * pos['dir'] * POINT_VALUE - COMMISSION
+            trades.append({**pos, 'exit_ts': prev.ts, 'pnl': pnl, 'reason': 'roll'})
+            pos = None
         if pos is not None:
             hi, lo = b.h, b.l
             if pos['dir'] > 0:
@@ -611,15 +700,18 @@ def main():
     if scale != 1.0:
         print(f'prices are 1e-9 fixed point; scaling by {scale:g}')
 
-    want = a.symbol
+    want, rolls = a.symbol, frozenset()
     if a.front and not want:
-        want = _pick_front(census(paths))
+        if len(paths) > 1:
+            want, rolls = front_by_file(paths)
+        else:
+            want = _pick_front(census(paths))
 
     try:
-        bars, thr = build_bars(read_all(paths, scale, want))
+        bars, thr, roll_at = build_bars(read_all(paths, scale, want, rolls))
     except MultipleContracts:
         return _explain_contracts(paths)
-    trades = run(bars, a.idea, rth_only=not a.all_session)
+    trades = run(bars, a.idea, rth_only=not a.all_session, roll_at=roll_at)
 
     span = ''
     if bars:

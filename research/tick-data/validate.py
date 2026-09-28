@@ -21,6 +21,7 @@ import os
 import re
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+POINT_VALUE = 2.0
 EDGE = os.path.join(HERE, '..', 'entry-screen', 'edge.py')
 
 
@@ -168,6 +169,55 @@ def _ingest_gates(tmp, probe, flat, gates):
         report('zstd batch as downloaded', same,
                'identical trade list; condition.json ignored' if same
                else 'DIFFERENT — decompression or file discovery is wrong')
+
+    # 3c. A window longer than a quarter crosses a contract roll. The two
+    #     expirations trade hundreds of points apart, so the handover must not
+    #     reach the ATR, must not be scored as P&L on an open position, and must
+    #     not cost us every session on the far side of it.
+    starting('roll across the window')
+    rolldir = os.path.join(tmp, 'rollbatch')
+    os.makedirs(rolldir, exist_ok=True)
+    day_files = sorted(os.listdir(daydir))
+    cut = len(day_files) // 2
+    ipx = isym = None
+    for k, name in enumerate(day_files):
+        with open(os.path.join(daydir, name)) as fi:
+            cols = fi.readline().strip().split(',')
+            if ipx is None:
+                ipx, isym = cols.index('price'), cols.index('symbol')
+            rows = []
+            for line in fi:
+                pr = line.rstrip('\n').split(',')
+                if k >= cut:
+                    # The far contract: same flow, shifted 400 points.
+                    pr[ipx] = f'{float(pr[ipx]) + 400.0:.2f}'
+                    pr[isym] = 'MNQM4'
+                rows.append(','.join(pr))
+        with open(os.path.join(rolldir, name), 'w') as fo:
+            fo.write(','.join(cols) + '\n' + '\n'.join(rows) + '\n')
+    r = subprocess.run([sys.executable, probe, rolldir, '--front',
+                        '--idea', 'delta-momentum',
+                        '--out', os.path.join(tmp, 'ing_roll.csv')],
+                       capture_output=True, text=True)
+    out = r.stdout
+    # synth.py writes MNQZ4; the far half above was relabelled MNQM4.
+    saw_both = 'MNQZ4' in out and 'MNQM4' in out and 'roll at' in out
+    n_roll = 0
+    if r.returncode == 0:
+        with open(os.path.join(tmp, 'ing_roll.csv')) as fh:
+            body = fh.read()
+        n_roll = body.count('Entry long') + body.count('Entry short')
+        # The 400-point gap must never appear as a trade's P&L. The widest
+        # honest outcome is the 5R probe target on the largest stop.
+        worst = max((abs(float(x.split(',')[6]))
+                     for x in body.splitlines()[1:] if x.split(',')[6]), default=0)
+    else:
+        worst = 1e9
+    ok = (r.returncode == 0 and saw_both and n_roll > 0.7 * len(base_rows.splitlines()) / 2
+          and worst < 400 * POINT_VALUE)
+    report('roll across the window', ok,
+           f'both contracts used, {n_roll} trades, worst |PnL| ${worst:.0f} < gap'
+           if ok else f'rc={r.returncode} both={saw_both} n={n_roll} worst=${worst:.0f}')
 
     names = sorted(os.listdir(daydir))
     r = subprocess.run([sys.executable, probe,
