@@ -58,9 +58,33 @@ under *Customize download*:
 |---|---|
 | **Dataset** | `GLBX.MDP3` |
 | **Schema** | **`trades`**, not `mbp-1`. The probe reads `ts_event`, `action`, `side`, `price`, `size` and nothing else — no bid, no ask. MBP-1 adds a book snapshot per quote change, which is most of the bytes and all discarded. |
-| **Symbols** | **One contract**, e.g. `MNQZ3`. Left blank you are buying every product on CME Globex — that is what the 504 GB was. |
+| **Symbols** | **One contract**, via *raw symbol* symbology. Left blank you are buying every product on CME Globex — that is what the 504 GB was. |
 | **Time range** | One month inside Sep 2023 – Mar 2025. The Mar 2025 – Sep 2026 holdout stays sealed. |
 | **Encoding** | CSV. Decimal or fixed-point prices both work — the ingest detects which. |
+
+**The search box on the browse page indexes products, not expirations.** `MNQ`
+is there; `MNQH4` is not, and searching for it returns nothing. Select the `MNQ`
+product first, then name the contract inside *Customize download* with the
+symbology type set to **raw symbol**.
+
+Which contract, for a one-month pilot — MNQ rolls quarterly on H/M/U/Z:
+
+| month | front contract |
+|---|---|
+| Sep – mid-Dec 2023 | `MNQZ3` |
+| mid-Dec 2023 – mid-Mar 2024 | `MNQH4` |
+| mid-Mar – mid-Jun 2024 | `MNQM4` |
+| mid-Jun – mid-Sep 2024 | `MNQU4` |
+| mid-Sep – mid-Dec 2024 | `MNQZ4` |
+| mid-Dec 2024 – Mar 2025 | `MNQH5` |
+
+Pick a month that sits wholly inside one row — January 2024 on `MNQH4` is the
+clean default.
+
+**Not the continuous symbols** (`MNQ.v.0`, `MNQ.c.0`) for the pilot. They splice
+expirations without back-adjusting, so the series carries a several-hundred-point
+gap at each roll; the ingest refuses such a file as two contracts, which is right.
+Rolling is a problem for the full 18-month buy, not for one month.
 
 Read the portal's figure before buying. The point of the table is which lever to
 pull, not what it will cost.
