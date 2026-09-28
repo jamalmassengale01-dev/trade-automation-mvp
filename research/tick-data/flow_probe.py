@@ -58,6 +58,32 @@ BAR_SECONDS = 300
 REQUIRED = ('ts_event', 'action', 'side', 'price', 'size')
 
 
+def opencsv(path):
+    """
+    Open a Databento export, compressed or not.
+
+    Batch downloads arrive as `.csv.zst`. Decompressing 31 files by hand before
+    every run is a step that will eventually be half-done, so read them as they
+    come. Streaming rather than decompressing to disk: the month is ~630 MB
+    compressed and several times that expanded.
+    """
+    if not path.endswith('.zst'):
+        return open(path, newline='')
+    try:
+        import zstandard
+    except ImportError:
+        raise SystemExit(
+            f'{os.path.basename(path)} is zstd-compressed and the zstandard '
+            'module is not installed.\n'
+            '  pip install zstandard\n'
+            'Or decompress first:  unzstd *.csv.zst'
+        )
+    import io
+    fh = open(path, 'rb')
+    return io.TextIOWrapper(
+        zstandard.ZstdDecompressor().stream_reader(fh), newline='')
+
+
 class MultipleContracts(Exception):
     """Raised mid-stream so the caller can run a census and say which to pick."""
 
@@ -90,9 +116,16 @@ def expand_inputs(paths):
     out = []
     for p in paths:
         if os.path.isdir(p):
-            found = sorted(_glob.glob(os.path.join(p, '*.csv')))
+            # `condition.json` ships beside the data in every batch and is
+            # metadata, not bars. Match the data files rather than excluding
+            # the one companion file that happens to be known today.
+            found = sorted(_glob.glob(os.path.join(p, '*.csv'))
+                           + _glob.glob(os.path.join(p, '*.csv.zst')))
             if not found:
-                raise SystemExit(f'No .csv files in {p}')
+                raise SystemExit(
+                    f'No .csv or .csv.zst files in {p}\n'
+                    f'Found instead: {", ".join(sorted(os.listdir(p))[:8]) or "nothing"}'
+                )
             out.extend(found)
         elif any(c in p for c in '*?['):
             found = sorted(_glob.glob(p))
@@ -116,7 +149,7 @@ def census(paths):
     """
     counts = {}
     for p in paths:
-        with open(p, newline='') as fh:
+        with opencsv(p) as fh:
             rdr = csv.DictReader(fh)
             cols = rdr.fieldnames or []
             id_col = 'symbol' if 'symbol' in cols else (
@@ -141,7 +174,7 @@ def detect_price_scale(path, sample=500):
     an unrecognised scale is the failure that produces a plausible-looking zero.
     """
     prices = []
-    with open(path, newline='') as fh:
+    with opencsv(path) as fh:
         rdr = csv.DictReader(fh)
         if 'price' not in (rdr.fieldnames or []):
             return 1.0                       # the column check below will fire
@@ -212,7 +245,7 @@ def read_trades(path, price_scale=1.0, want_symbol=None, state=None):
     handover that read as real range — the ATR, the stop and the excursions all
     inherit them.
     """
-    with open(path, newline='') as fh:
+    with opencsv(path) as fh:
         rdr = csv.DictReader(fh)
         missing = [c for c in REQUIRED if c not in (rdr.fieldnames or [])]
         if missing:

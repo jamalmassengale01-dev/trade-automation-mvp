@@ -135,6 +135,32 @@ def _ingest_gates(tmp, probe, flat, gates):
            'identical trade list to one file' if same
            else 'DIFFERENT — the files are not being stitched correctly')
 
+    # 3b. The batch arrives zstd-compressed, named glbx-mdp3-<date>.trades.csv.zst,
+    #     with a condition.json alongside that is metadata rather than bars.
+    try:
+        import zstandard
+    except ImportError:
+        report('zstd batch as downloaded', False,
+               'zstandard not installed — pip install zstandard')
+    else:
+        zdir = os.path.join(tmp, 'zbatch')
+        os.makedirs(zdir, exist_ok=True)
+        for name in sorted(os.listdir(daydir)):
+            day = name[len('mnq-'):-len('.csv')].replace('-', '')
+            with open(os.path.join(daydir, name), 'rb') as fi:
+                blob = zstandard.ZstdCompressor().compress(fi.read())
+            with open(os.path.join(zdir, f'glbx-mdp3-{day}.trades.csv.zst'), 'wb') as fo:
+                fo.write(blob)
+        with open(os.path.join(zdir, 'condition.json'), 'w') as fo:
+            fo.write('{"dataset":"GLBX.MDP3"}')
+        out = os.path.join(tmp, 'ing_zst.csv')
+        sh([sys.executable, probe, zdir, '--idea', 'delta-momentum', '--out', out])
+        with open(out) as fh:
+            same = fh.read() == base_rows
+        report('zstd batch as downloaded', same,
+               'identical trade list; condition.json ignored' if same
+               else 'DIFFERENT — decompression or file discovery is wrong')
+
     names = sorted(os.listdir(daydir))
     r = subprocess.run([sys.executable, probe,
                         os.path.join(daydir, names[-1]),
