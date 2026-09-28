@@ -633,7 +633,12 @@ def main():
         print('\nNo trades. Either the condition never fires or the input is wrong.')
         return 1
     write_trades(trades, a.out, a.idea)
-    print(f'\nScore it:\n  python3 ../entry-screen/edge.py {a.out} {a.idea}')
+    edge = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        '..', 'entry-screen', 'edge.py')
+    # sys.executable, not a hardcoded "python3" — that name does not exist on
+    # Windows, where this is run.
+    print(f'\nScore it:\n  {sys.executable} {os.path.normpath(edge)} '
+          f'{a.out} {a.idea}')
     return 0
 
 
