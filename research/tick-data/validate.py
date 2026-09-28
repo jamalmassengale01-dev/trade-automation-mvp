@@ -65,14 +65,19 @@ def _ingest_gates(tmp, probe, flat, gates):
     """
     def report(name, ok, detail):
         gates.append(ok)
-        print(f'  {"PASS" if ok else "FAIL"}  {name:34s} {detail}')
+        print(f'  {"PASS" if ok else "FAIL"}  {name:34s} {detail}{" " * 12}')
 
+    def starting(name):
+        print(f'  ....  {name:34s} running...', end='\r', flush=True)
+
+    starting('baseline for comparison')
     base = os.path.join(tmp, 'ing_base.csv')
     sh([sys.executable, probe, flat, '--idea', 'delta-momentum', '--out', base])
     with open(base) as fh:
         base_rows = fh.read()
 
     # 1. Fixed-point prices must be detected and produce an identical trade list.
+    starting('1e-9 fixed-point prices')
     fixed = os.path.join(tmp, 'fixed.csv')
     ipx = None
 
@@ -94,6 +99,7 @@ def _ingest_gates(tmp, probe, flat, gates):
     # 2. The `trades` schema has no book columns at all. Ordering it instead of
     #    MBP-1 is the difference between a pilot inside the signup credit and an
     #    $845 quote, so prove it is sufficient rather than asserting it.
+    starting('trades schema (no book columns)')
     bare = os.path.join(tmp, 'trades_schema.csv')
     drop = ('bid_px_00', 'ask_px_00', 'bid_sz_00', 'ask_sz_00')
     with open(flat) as fi, open(bare, 'w') as fo:
@@ -114,6 +120,7 @@ def _ingest_gates(tmp, probe, flat, gates):
     # 3. Databento's batch download splits by duration, so a month arrives as
     #    ~20 daily files. Reading them must equal reading one concatenated file,
     #    and out-of-order input must fail rather than build shuffled bars.
+    starting('day-split batch')
     daydir = os.path.join(tmp, 'daysplit')
     os.makedirs(daydir, exist_ok=True)
     with open(flat) as fi:
@@ -143,6 +150,7 @@ def _ingest_gates(tmp, probe, flat, gates):
         report('zstd batch as downloaded', False,
                'zstandard not installed — pip install zstandard')
     else:
+        starting('zstd batch as downloaded')
         zdir = os.path.join(tmp, 'zbatch')
         os.makedirs(zdir, exist_ok=True)
         for name in sorted(os.listdir(daydir)):
@@ -174,6 +182,7 @@ def _ingest_gates(tmp, probe, flat, gates):
            'sorted before reading' if r.returncode == 0 else 'not sorted')
 
     # 4. Two contracts in one file must be refused, not silently interleaved.
+    starting('two contracts in one export')
     mixed = os.path.join(tmp, 'mixed.csv')
     isym = [None]
     n = [0]
@@ -208,13 +217,22 @@ def _ingest_gates(tmp, probe, flat, gates):
 
 
 def main():
+    # Unbuffered, because the alternative is a script that prints nothing for
+    # several minutes and is indistinguishable from one that has crashed. The
+    # gates take a while; silence should never be the status report.
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except AttributeError:
+        pass
+
     tmp = tempfile.mkdtemp()
     synth = os.path.join(HERE, 'synth.py')
     probe = os.path.join(HERE, 'flow_probe.py')
     flat = os.path.join(tmp, 'flat.csv')
     edged = os.path.join(tmp, 'edged.csv')
 
-    print('generating synthetic sessions (60 days, with and without a planted edge)...')
+    print('generating synthetic sessions (60 days, with and without a planted\n'
+          'edge). This is the slow part -- a couple of minutes, no output.')
     with open(flat, 'w') as fh:
         fh.write(sh([sys.executable, synth, '--days', '60', '--edge', '0.0', '--seed', '1']))
     with open(edged, 'w') as fh:
@@ -223,12 +241,14 @@ def main():
     gates = []
 
     def gate(name, src, idea, label, check, expectation):
+        print(f'  ....  {name:34s} running...', end='\r', flush=True)
         out_csv = os.path.join(tmp, f'{label}.csv')
         sh([sys.executable, probe, src, '--idea', idea, '--out', out_csv])
         z, n = score(out_csv, label)
         ok = check(z)
         gates.append(ok)
-        print(f'  {"PASS" if ok else "FAIL"}  {name:34s} z={z:+6.2f}  n={n:4d}   {expectation}')
+        print(f'  {"PASS" if ok else "FAIL"}  {name:34s} z={z:+6.2f}  n={n:4d}   '
+              f'{expectation}{" " * 12}')
 
     print('\nGates:')
     # 1. Can it see an edge at all?
