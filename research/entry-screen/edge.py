@@ -26,6 +26,7 @@ import csv, sys, math, statistics, collections
 PV = 2.0        # MNQ: $2 per point. MES 5.0, MYM 0.5 — change per instrument.
 COMMISSION = 1.24
 HORIZONS = [0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0]
+PILOT = False   # --pilot: print estimates below the 100-trade floor, no verdict
 BAR = 2.6       # nine ideas screened; set before any result was seen
 
 # Discovery window. Mar 2025 - Sep 2026 stays sealed for whatever survives.
@@ -127,9 +128,23 @@ def main(path, label):
               f'condition almost never fires.\n  *** Usually a data-availability '
               f'problem, not an edge. Check the reference series trades when '
               f'the chart does.')
-    if N < 100:
+    if N < 100 and not PILOT:
         print('\n  UNDER 100 TRADES — the interval is wider than any edge you would act on.')
+        print('  Pass --pilot to see the estimates anyway. They are not a result.')
         return
+    if N < 100:
+        # --pilot exists for one declared purpose: a go/no-go on EFFECT SIZE
+        # before paying for history, which research/tick-data/PLAN.md specified
+        # before any data was bought. It is not a significance test and cannot
+        # become one by being run again, so the banner says so above the table
+        # rather than below it, where it would be read after the numbers.
+        print('\n  ' + '=' * 66)
+        print(f'  PILOT MODE, {N} TRADES. THIS IS NOT A RESULT.')
+        print('  The sigma column below is uninterpretable at this sample size and')
+        print('  must not be compared against the 2.73 bar or recorded in')
+        print('  RESULTS.md. The only question it can answer is whether the')
+        print('  estimates sit ON the coin-flip line or visibly off it.')
+        print('  ' + '=' * 66)
 
     print(f'\n{"target":>7} {"coin flip":>10} {"measured":>10} {"edge":>8} {"EV/trade":>10}')
     best = (None, -99)
@@ -187,9 +202,20 @@ def main(path, label):
         print('\nVERDICT: CANNOT SCORE — expected value is not a number. '
               'Fix the input before reading anything above.')
         return
+    if PILOT:
+        # No verdict in pilot mode. "DEAD" at 91 trades reads like a finding and
+        # is not one — the sample cannot reject anything. Say what the run is
+        # for instead.
+        print('\nNO VERDICT — pilot mode. This sample can neither carry an idea '
+              'forward nor kill it.\nRead only whether the estimates separate '
+              'from the coin-flip column, then decide whether\nto buy the '
+              'history that could answer it.')
+        return
     ok = z >= BAR and min(z1, z2) >= 0.5 and ev > 0
     print(f'\nVERDICT: {"CARRY FORWARD — retest on MES, then the holdout" if ok else "DEAD"}')
 
 
 if __name__ == '__main__':
-    main(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else 'entry')
+    args = [a for a in sys.argv[1:] if not a.startswith('--')]
+    PILOT = '--pilot' in sys.argv
+    main(args[0], args[1] if len(args) > 1 else 'entry')
