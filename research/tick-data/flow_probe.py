@@ -392,6 +392,7 @@ def build_bars(trades, big_print_threshold=None):
     roll_at = set()
     first_day = None
     first_day_sizes = []
+    big_from = None          # first bar index with a usable big_delta
 
     for rec in trades:
         if rec[0] == 'ROLL':
@@ -407,6 +408,14 @@ def build_bars(trades, big_print_threshold=None):
             first_day = day
         if day == first_day and big_print_threshold is None:
             first_day_sizes.append(size)
+        elif big_print_threshold is None and first_day_sizes:
+            # Session 1 is over: freeze the threshold and start recording large
+            # prints from here. Session 1's own bars keep big_delta = 0 and are
+            # excluded by the condition, which is the price of not letting the
+            # tested data choose its own cutoff.
+            first_day_sizes.sort()
+            big_print_threshold = first_day_sizes[int(0.95 * len(first_day_sizes))]
+            big_from = len(bars)
 
         slot = ts - (ts % BAR_SECONDS)
         if cur is None or slot != cur.ts:
@@ -421,6 +430,8 @@ def build_bars(trades, big_print_threshold=None):
         cur.c = px
         cur.vol += size
         cur.delta += signed
+        if big_print_threshold is not None and size >= big_print_threshold:
+            cur.big_delta += signed
         cum += signed
         cur.cum_delta = cum
     if cur is not None:
@@ -433,6 +444,8 @@ def build_bars(trades, big_print_threshold=None):
 
     _add_atr(bars, roll_at)
     _add_delta_z(bars)
+    for b in bars[:big_from or 0]:
+        b.big_delta = None   # session 1: no threshold existed yet, so not zero
     return bars, big_print_threshold, roll_at
 
 
@@ -494,6 +507,74 @@ def condition(name, bars, i):
             return 1
         return 0
 
+    if name == 'session-imbalance':
+        # Signed volume over the session so far, as a share of volume traded.
+        # The slowest feature declared, and the one most likely to persist on a
+        # 5-minute horizon. Needs an hour of session before it means anything.
+        if i < 3:
+            return 0
+        start = i
+        while start > 0 and bars[start - 1].ts // 86400 == b.ts // 86400:
+            start -= 1
+        if i - start < 6:                     # half an hour into the session
+            return 0
+        vol = sum(bars[k].vol for k in range(start, i + 1))
+        if vol <= 0:
+            return 0
+        ratio = b.cum_delta / vol
+        return 1 if ratio > 0.05 else (-1 if ratio < -0.05 else 0)
+
+    if name == 'large-print':
+        # Signed volume from prints in the top size ventile, accumulated over
+        # 15 minutes. The premise is that size is informed and small prints are
+        # churn — so this should separate where raw delta does not.
+        if i < 3 or any(bars[k].big_delta is None for k in range(i - 2, i + 1)):
+            return 0
+        hist = [bars[k].big_delta for k in range(max(0, i - 50), i + 1)
+                if bars[k].big_delta is not None]
+        if len(hist) < 30:
+            return 0
+        recent = sum(bars[k].big_delta for k in range(i - 2, i + 1))
+        m = sum(hist) / len(hist)
+        sd = math.sqrt(sum((x - m) ** 2 for x in hist) / len(hist))
+        if sd <= 0:
+            return 0
+        z = (recent / 3 - m) / sd
+        return 1 if z > 0.8 else (-1 if z < -0.8 else 0)
+
+    if name == 'absorption':
+        # Heavy volume, one-sided flow, and price does not move: size is being
+        # worked against the initiating side. Fades the flow, which is the
+        # opposite sign to delta-momentum — deliberately, since one of the two
+        # premises has to be wrong.
+        if i < 20 or b.atr is None or b.atr <= 0:
+            return 0
+        vols = sorted(bars[k].vol for k in range(i - 20, i))
+        if b.vol < vols[int(0.65 * len(vols))]:
+            return 0
+        if abs(b.c - b.o) > 0.40 * b.atr:
+            return 0
+        if abs(b.delta_z) < 0.7:
+            return 0
+        return -1 if b.delta_z > 0 else 1
+
+    if name == 'delta-price-divergence':
+        # Signed volume and price return over 15 minutes point opposite ways.
+        # Trades the direction of FLOW, on the premise that flow leads price.
+        if i < 3:
+            return 0
+        ret = b.c - bars[i - 3].c
+        dlt = sum(bars[k].delta for k in range(i - 2, i + 1))
+        if abs(b.atr or 0) <= 0:
+            return 0
+        if abs(ret) > 0.5 * b.atr:            # must be a genuine disagreement
+            return 0
+        if dlt > 0 and ret < 0:
+            return 1
+        if dlt < 0 and ret > 0:
+            return -1
+        return 0
+
     if name == 'positive-control':
         # Reads the NEXT bar's close. Must produce double-digit sigma. If it
         # does not, the harness cannot detect an edge and nothing else it says
@@ -515,7 +596,13 @@ def condition(name, bars, i):
     raise SystemExit(f'Unknown idea: {name}')
 
 
-IDEAS = ('delta-momentum', 'delta-divergence', 'positive-control', 'negative-control')
+IDEAS = (
+    # Screen 3, declared 2 Oct 2026 BEFORE the data was bought. Bar +2.39.
+    'delta-momentum', 'delta-divergence', 'session-imbalance', 'large-print',
+    'absorption', 'delta-price-divergence',
+    # Controls, not hypotheses.
+    'positive-control', 'negative-control',
+)
 
 
 # ---------------------------------------------------------------------------
