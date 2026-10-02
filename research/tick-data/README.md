@@ -4,7 +4,10 @@ Tests whether order flow — who initiated each trade — predicts direction on 
 using the same protocol that screened fourteen OHLCV entry conditions and found
 nothing. `PLAN.md` has the reasoning, including the reasons this may not work.
 
-**Status: harness built and validated. No real data yet.**
+**Status: STOPPED 2 Oct 2026.** The harness is built and validated and six
+conditions are declared, but the screen was never run. Order flow was not
+tested — the line was stopped on power economics. `PILOT.md` has the numbers and
+the conditions for reopening it.
 
 ## Why this exists
 

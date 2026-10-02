@@ -86,7 +86,55 @@ hypothesis. Bar rises to ~2.5 for six.
 Against it: fourteen prior entry conditions, no survivor. The base rate is the
 strongest argument in the room and it argues for stopping.
 
-**Undecided as of 28 Sep 2026.** The Mar 2025 - Sep 2026 holdout remains sealed.
+## DECIDED 2 October 2026: STOPPED
+
+**The order-flow line is stopped. Order flow was never tested — this is a
+decision about cost and statistical power, not a finding about the hypothesis.**
+
+What settled it was projecting per-idea sample size before buying, anchored on
+January's observed 4.1 entries per session:
+
+```
+                          8 months (credits)      18 months (~$280)
+                            n      power            n      power
+delta-momentum             703      30%          1572      65%
+delta-divergence           950      41%          2123      80%
+session-imbalance          829      35%          1854      73%
+large-print                667      28%          1491      62%
+absorption                 517      21%          1155      50%
+delta-price-divergence     709      30%          1585      65%
+```
+
+Power is against the +2.39 bar for six tests, for the +3.3pp edge CLAUDE.md
+names as the bar worth trading.
+
+**The free credits cannot buy a screen worth running.** At ~30% power a real
+edge is missed seven times in ten, and six nulls at that power say close to
+nothing — the same objection `RESULTS.md` records against the ideas abandoned
+as untestable. Worse, running on eight months and then buying more after a
+borderline result is optional stopping: the second look is not independent and
+the bar stops meaning anything. The cheap option destroys the good one.
+
+That left ~$172 out of pocket for a screen at 50-80% power, against a base rate
+of fourteen entry conditions and no survivor. **Declined.**
+
+## What is left behind, and what would reopen it
+
+Nothing here is deleted, and the next session should not rebuild it:
+
+- A validated tick pipeline. 12 gates, compressed Databento batches read as
+  downloaded, front month resolved per session, rolls handled.
+- Six order-flow conditions implemented and declared at a bar of +2.39, none
+  of them ever run on real data beyond January's delta-momentum.
+- One month of MNQ trades already paid for, and ~$108 of Databento credit.
+  The batch download expires 28 Oct 2026; the credit's expiry is unchecked.
+
+Reopen it only if something changes the economics rather than the enthusiasm:
+a compliance answer that makes automation viable somewhere, a venue with cheap
+or bundled tick data, or a hypothesis from outside this family. Do not reopen it
+by rerunning these six on eight months.
+
+**The Mar 2025 - Sep 2026 holdout remains sealed and has never been opened.**
 
 ## If more months are bought
 

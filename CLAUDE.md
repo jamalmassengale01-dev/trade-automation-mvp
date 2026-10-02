@@ -140,6 +140,25 @@ participation. Data MNQ's own bars cannot contain, and it still found nothing.
 **Fourteen entries tested. Best result +2.36, which failed both robustness
 checks.**
 
+## ⚠ 2 OCTOBER 2026: THE ORDER-FLOW LINE WAS STOPPED, NOT TESTED
+
+The answer to "screen 2 could not see past OHLCV" was tick data: who initiated
+each trade. A validated pipeline was built, one month of MNQ bought for $16.47,
+and six conditions declared at a bar of +2.39.
+
+**It was then stopped without being run, and the reason is power, not evidence.**
+Projected per-idea sample sizes gave 21–41% power on the eight months the free
+Databento credits cover, and 50–80% on the full discovery window for ~$172 out of
+pocket. At 30% power a real edge is missed seven times in ten, so six nulls would
+have meant nothing — and running the cheap version first would have destroyed the
+good one, since buying more data after a borderline result is optional stopping.
+
+Against a base rate of fourteen conditions and no survivor, the spend was
+declined. **Nothing here says order flow has no edge. It says it was not
+measured.** `research/tick-data/PILOT.md` records what exists, what one month of
+delta-momentum returned (a null at 91 trades, itself underpowered), and the
+conditions for reopening.
+
 **The Mar 2025 – Sep 2026 holdout has never been opened.** It is worth exactly
 one honest test. Do not spend it on an idea that has not already cleared the
 discovery window.
@@ -1329,11 +1348,15 @@ a quiet market.
 ### Open questions — unresolved, listed so they are not rediscovered
 
 ```
-1. Win rate and TP2 share      — MEASURED 16 Sep 2026. No edge. The follow-up
-                                 question, "what replaces it", got its first
-                                 answer on 17 Sep: nine screened ideas, no
-                                 survivor. research/entry-screen/RESULTS.md.
-                                 Still open, but those nine are closed.
+1. Win rate and TP2 share      — MEASURED 16 Sep 2026. No edge. "What replaces
+                                 it" has now had three attempts: nine OHLCV
+                                 ideas (17 Sep), five more (25 Sep), and an
+                                 order-flow screen that was built and then
+                                 STOPPED UNRUN on power economics (2 Oct).
+                                 research/entry-screen/RESULTS.md and
+                                 research/tick-data/PILOT.md. Still open; those
+                                 fourteen are closed and order flow is unmeasured
+                                 rather than cleared.
 2. Automation policy           — SHARPENED 17 Sep 2026, and worse than recorded.
                                  Apex permits automation on EVALUATIONS and
                                  prohibits it on PA/Live — the stage holding the
@@ -1371,7 +1394,10 @@ a quiet market.
 ---
 
 *EdgePilot | GB LIVE v5 | Built by Jamal*
-*Last corrected: 26 September 2026 — GB LIVE measured: no edge. Replacement
+*Last corrected: 2 October 2026 — order-flow screen built, declared and then
+stopped unrun: the free credits bought 21-41% power and the full window cost
+$172 against a base rate of fourteen nulls. Order flow is unmeasured, not
+cleared. Earlier: GB LIVE measured: no edge. Replacement
 search across two screens, fourteen ideas: no survivor. Execution path
 researched: the Tradovate individual API cannot reach prop accounts, and Apex
 permits automation on evals but not on PAs. Portfolio layer measured: the ladder
